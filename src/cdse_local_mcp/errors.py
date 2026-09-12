@@ -66,6 +66,28 @@ class AuthRequired(CdseError):
     code = "auth_required"
 
 
+class BudgetExceeded(CdseError):
+    """The transfer would exceed a configured byte cap.
+
+    The backstop for when the search-present-confirm flow is bypassed: an agent in a loop
+    cannot spend a month of quota without a human saying yes.
+    """
+
+    code = "budget_exceeded"
+
+
+class OfflineProduct(CdseError):
+    """The product is on long-term archive and cannot be streamed."""
+
+    code = "offline_product"
+
+
+class TransferFailed(CdseError):
+    """A download started but did not complete correctly."""
+
+    code = "transfer_failed"
+
+
 class UpstreamError(CdseError):
     """CDSE returned an error or unusable response."""
 
