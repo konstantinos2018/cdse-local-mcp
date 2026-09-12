@@ -252,6 +252,25 @@ These cost real debugging time. [docs/cdse-apis.md](docs/cdse-apis.md) has the f
   and schema changes are **breaking** — agent configurations depend on them.
 - Release: `uv build` then publish to PyPI from CI on a tag.
 
+## Commits
+
+[CONTRIBUTING.md](CONTRIBUTING.md) is authoritative. In short:
+
+```
+<type>(<scope>): <short summary>
+
+<body: what and why, never how, wrapped at 72 columns>
+
+<footer: Closes #123, Refs #456, BREAKING CHANGE:>
+```
+
+- Subject in the **imperative** ("Add", not "Added"), **50 characters or less**, no trailing
+  period. It completes the sentence "If applied, this commit will…".
+- Types: `feat`, `fix`, `refactor`, `docs`, `style`, `test`, `chore`, `perf`.
+- **One logical change per commit.** If the subject needs the word "and", split it —
+  `git add -p` stages part of a diff.
+- No AI attribution in any trailer, per the rule at the top of this file.
+
 ## Style
 
 - Python ≥3.11, `async` throughout, full type hints — `mypy` runs strict on `src/`.
