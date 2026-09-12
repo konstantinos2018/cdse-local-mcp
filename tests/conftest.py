@@ -28,6 +28,17 @@ def load_fixture(name: str) -> dict[str, Any]:
 
 
 @pytest.fixture(autouse=True)
+def ignore_developer_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Never read the developer's real .env during tests.
+
+    pydantic-settings loads .env by default, so a contributor with credentials configured
+    would get different results from one without - and a test asserting "no credentials"
+    would silently pass for the wrong reason, or fail confusingly. Found exactly that way.
+    """
+    monkeypatch.setitem(Settings.model_config, "env_file", None)
+
+
+@pytest.fixture(autouse=True)
 def fresh_client() -> Iterator[None]:
     """Give every test its own STAC client, and never leak one between tests."""
     discovery.set_client(StacClient(Settings()))
