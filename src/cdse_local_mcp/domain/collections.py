@@ -288,6 +288,33 @@ def describe_asset(collection: str, key: str) -> AssetSpec | None:
     return spec.asset_names.get(stripped)
 
 
+def match_asset_key(collection: str, requested: str, available: list[str]) -> str | None:
+    """Resolve what a caller asked for to an actual STAC asset key.
+
+    Accepts the key itself (``B04``, ``chl-Nn``), any casing of it, or the friendly name
+    this server publishes (``red_10m``, ``chlorophyll_nn``). Asset keys are inconsistent
+    across collections, so making the model reproduce them exactly is a trap.
+    """
+    wanted = requested.strip()
+    if wanted in available:
+        return wanted
+
+    lowered = wanted.lower()
+    by_lower = {key.lower(): key for key in available}
+    if lowered in by_lower:
+        return by_lower[lowered]
+
+    spec = spec_for(collection)
+    if spec is not None:
+        for key, info in spec.asset_names.items():
+            if info.name.lower() == lowered and key in available:
+                return key
+            # OLCI reflectance keys carry a "Data" suffix the friendly name omits.
+            if info.name.lower() == lowered and f"{key}Data" in available:
+                return f"{key}Data"
+    return None
+
+
 def find_archive_asset(assets: dict[str, object]) -> str | None:
     """Find the whole-product archive asset key, case-insensitively.
 
