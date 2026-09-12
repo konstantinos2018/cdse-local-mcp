@@ -23,3 +23,6 @@ downloads/
 *.tif
 *.tiff
 *.zip
+
+# VS Code Local History extension
+.history/
