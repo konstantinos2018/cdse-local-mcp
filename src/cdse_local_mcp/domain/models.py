@@ -7,6 +7,7 @@ not the raw STAC item. A single Sentinel-2 item is several KB of mostly irreleva
 from __future__ import annotations
 
 import re
+from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -23,8 +24,9 @@ def human_bytes(size: int | None) -> str | None:
     if size is None:
         return None
     value = float(size)
-    for unit in ("B", "KB", "MB", "GB", "TB"):
-        if value < 1024 or unit == "TB":
+    # Binary divisors, so the labels are the binary ones: 25 GiB, not a misleading 25 GB.
+    for unit in ("B", "KiB", "MiB", "GiB", "TiB"):
+        if value < 1024 or unit == "TiB":
             return f"{value:.0f} {unit}" if unit == "B" else f"{value:.1f} {unit}"
         value /= 1024
     return None  # pragma: no cover - loop always returns
@@ -130,6 +132,64 @@ class ProductAssets(BaseModel):
         default_factory=list,
         description="Asset keys the catalogue declares with no href; they cannot be fetched",
     )
+    notes: list[str] = Field(default_factory=list)
+
+
+class JobState(StrEnum):
+    """Where a download has got to."""
+
+    QUEUED = "queued"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+    INTERRUPTED = "interrupted"
+
+    @property
+    def is_finished(self) -> bool:
+        return self in {
+            JobState.COMPLETED,
+            JobState.FAILED,
+            JobState.CANCELLED,
+            JobState.INTERRUPTED,
+        }
+
+
+class Job(BaseModel):
+    """One download. Carries a path, never the bytes."""
+
+    job_id: str = Field(description="Pass to download_status or download_cancel")
+    product_id: str
+    collection: str
+    state: JobState
+    bytes_done: int = 0
+    bytes_total: int | None = None
+    path: str | None = Field(default=None, description="Local file path once complete")
+    error: str | None = None
+    cached: bool = Field(default=False, description="True if the file was already on disk")
+    checksum_verified: bool = False
+    created_at: str
+    finished_at: str | None = None
+
+    @property
+    def percent(self) -> float | None:
+        if not self.bytes_total:
+            return None
+        return round(100.0 * self.bytes_done / self.bytes_total, 1)
+
+    def describe_progress(self) -> str:
+        done = human_bytes(self.bytes_done) or "0 B"
+        if self.bytes_total:
+            return f"{done} of {human_bytes(self.bytes_total)} ({self.percent}%)"
+        return done
+
+
+class DownloadReport(BaseModel):
+    """A job, plus what the caller should do or say next."""
+
+    jobs: list[Job]
+    session_bytes_used: str | None = None
+    session_bytes_remaining: str | None = None
     notes: list[str] = Field(default_factory=list)
 
 
