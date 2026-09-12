@@ -1,14 +1,22 @@
 # CLAUDE.md
 
-Guidance for Claude Code and human contributors working in this repository.
+Guidance for AI coding agents and human contributors working in this repository.
 
 ## What this is
 
-`copernicus-dataspace-mcp` is an MCP server that gives LLM agents access to the **Copernicus
-Data Space Ecosystem (CDSE)**: catalogue discovery over the STAC and OData APIs, and
-retrieval of Sentinel products to local disk over S3 and OData. It runs as a local **stdio**
-server (Claude Desktop, Claude Code, any MCP client) and is distributed as a public
-open-source package on PyPI.
+`cdse-local-mcp` is an MCP server that gives LLM agents access to the **Copernicus Data Space
+Ecosystem (CDSE)**: catalogue discovery over the STAC and OData APIs, and retrieval of
+Sentinel products to local disk over S3 and OData. It runs as a local **stdio** server against
+any MCP client, and is distributed as a public open-source package on PyPI.
+
+- Repository: `https://github.com/konstantinos2018/cdse-local-mcp`
+- Package / console script: `cdse-local-mcp`
+- Import path: `cdse_local_mcp`
+- Author: Kostas Vlachos
+- License: Apache-2.0
+
+**Do not add AI attribution anywhere** — no `Co-Authored-By` trailers, no "generated with"
+lines in commits, pull requests, docs or source comments.
 
 **Non-goals for v1.** Do not add these without being asked — they are deliberate exclusions,
 not gaps:
@@ -25,13 +33,13 @@ not gaps:
 
 ```bash
 uv sync --all-extras           # install, including dev deps
-uv run cdse-mcp                # run the stdio server
+uv run cdse-local-mcp          # run the stdio server
 uv run pytest                  # full suite, no network (live tests deselected)
 uv run pytest -m live          # live CDSE tests; needs credentials in env
 uv run ruff check --fix .      # lint
 uv run ruff format .           # format
 uv run mypy src                # type check
-npx @modelcontextprotocol/inspector uv run cdse-mcp   # exercise tools by hand
+npx @modelcontextprotocol/inspector uv run cdse-local-mcp   # exercise tools by hand
 ```
 
 Run `ruff`, `mypy` and `pytest` before declaring any change done.
@@ -39,7 +47,7 @@ Run `ruff`, `mypy` and `pytest` before declaring any change done.
 ## Layout and the layering rule
 
 ```
-src/copernicus_dataspace_mcp/
+src/cdse_local_mcp/
 ├── server.py            # FastMCP instance + tool registration ONLY
 ├── config.py            # pydantic-settings: credentials, download root, caps
 ├── auth.py              # TokenProvider: client credentials, refresh, lock
@@ -121,12 +129,25 @@ deliberate decision, do not add a password grant.
 | `CDSE_CLIENT_SECRET` | OAuth client secret |
 | `CDSE_S3_ACCESS_KEY` | Optional; enables the S3 download transport |
 | `CDSE_S3_SECRET_KEY` | Optional; pairs with the above |
-| `CDSE_DOWNLOAD_DIR` | Download root (default: `~/.cache/copernicus-dataspace-mcp`) |
+| `CDSE_DOWNLOAD_DIR` | Download root (default: `~/.cache/cdse-local-mcp`) |
+| `CDSE_MAX_CALL_BYTES` | Per-call transfer cap (default 5 GiB) |
+| `CDSE_MAX_SESSION_BYTES` | Per-session transfer budget (default 25 GiB) |
 
 Access tokens live **10 minutes**. `TokenProvider` refreshes ahead of expiry behind an
-`asyncio.Lock`, caches in memory only, and never touches disk. Catalogue search works
-unauthenticated, so discovery tools must degrade gracefully when no credentials are
-configured — report the limitation rather than failing at import time.
+`asyncio.Lock`, caches in memory only, and never touches disk.
+
+**Capability tiers by credential.** Catalogue search works unauthenticated; downloads need
+the OAuth client; windowed reads need the S3 keys. Tools must degrade gracefully and say
+which credential is missing — never fail at import time.
+
+| Configured | Available |
+|---|---|
+| nothing | `search_products`, `get_product`, `list_product_assets` |
+| + OAuth client | `download_assets`, `download_product_archive` |
+| + S3 keys | `download_window`, faster large transfers |
+
+README documents *that* both credentials are required and links to the CDSE dashboard and the
+S3 keys manager; it does not walk through creating them.
 
 ## CDSE domain gotchas
 
@@ -199,13 +220,31 @@ These cost real debugging time. [docs/cdse-apis.md](docs/cdse-apis.md) has the f
   `errors.py`.
 - Comment *why*, not *what*. Match the density of the surrounding code.
 
+## First-class collections
+
+All 419 CDSE collections work generically — anything in `/collections` is searchable. A small
+set is **first-class**, meaning it gets tuned defaults, enum-constrained band parameters,
+recorded test fixtures and worked examples in the README. Listed in
+`domain/collections.py`:
+
+| Collection | Why first-class |
+|---|---|
+| `sentinel-2-l1c` | Primary target: band enums `B01`–`B12`, `B8A`, `TCI`; cloud-cover default filter; windowed-read support |
+| `sentinel-2-l2a` | Same treatment; note the different `.SAFE` internal layout (`R10m`/`R20m`/`R60m` subdirs) |
+| `sentinel-1-grd` | SAR: no `eo:cloud_cover`, different polarisation/orbit parameters |
+| `cop-dem-glo-30-dged-cog` | Already COG, so the cheapest windowed-read path and a good test case |
+
+Adding a collection to this list means: fixtures recorded, band/parameter vocabulary encoded,
+and at least one end-to-end test. Do not expand it casually — each entry is maintenance.
+Everything else is reachable through the generic path without tuning.
+
 ## Open decisions
 
-Ask before assuming; these are not yet settled. Once decided they are recorded here and this
-section shrinks — it is the list of things a session must not guess at.
+Ask before assuming. Once decided they are recorded above and this section shrinks — it is
+the list of things a session must not guess at.
 
-- GitHub owner, final package name on PyPI, and author attribution
-- License (Apache-2.0 recommended, not yet confirmed)
-- Priority collections that get first-class defaults and recorded fixtures
-- Shipped default for the per-session byte budget
-- Whether CI runs a scheduled live smoke test or stays mocked-only
+- Confirm the first-class collection list above matches actual use
+- Confirm the byte-budget defaults (`CDSE_MAX_CALL_BYTES` 5 GiB, `CDSE_MAX_SESSION_BYTES`
+  25 GiB)
+- CI: mocked-only on every push is settled; whether to add a weekly scheduled live smoke
+  test against real CDSE is not
