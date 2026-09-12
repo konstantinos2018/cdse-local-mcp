@@ -92,7 +92,7 @@ strict = true
 warn_unreachable = true
 
 [[tool.mypy.overrides]]
-module = ["shapely.*"]
+module = ["shapely.*", "boto3.*", "botocore.*", "rasterio.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

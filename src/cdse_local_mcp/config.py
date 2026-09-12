@@ -48,6 +48,9 @@ class Settings(BaseSettings):
         "https://identity.dataspace.copernicus.eu/auth/realms/CDSE/protocol/openid-connect/token"
     )
     s3_endpoint_url: str = "https://eodata.dataspace.copernicus.eu"
+    # CDSE's object store is Ceph-compatible and ignores the region, but botocore insists
+    # on one being set.
+    s3_region: str = "default"
 
     # --- http ---------------------------------------------------------------------------
     request_timeout: float = 60.0
