@@ -14,6 +14,7 @@ import logging
 
 from cdse_local_mcp.auth import TokenProvider
 from cdse_local_mcp.clients.odata import ODataClient
+from cdse_local_mcp.clients.s3 import S3Client, split_s3_path
 from cdse_local_mcp.config import get_settings
 from cdse_local_mcp.domain import collections as coll
 from cdse_local_mcp.domain.models import DownloadReport, Job, ProductSummary, human_bytes
@@ -26,14 +27,14 @@ from cdse_local_mcp.errors import (
 )
 from cdse_local_mcp.tools import DOWNLOADS, READ_ONLY, ToolDef, discovery
 from cdse_local_mcp.transfer.budget import TransferBudget, get_budget
-from cdse_local_mcp.transfer.download import download_stream
+from cdse_local_mcp.transfer.bulk import download_objects
 from cdse_local_mcp.transfer.jobs import JobRegistry, get_registry
-from cdse_local_mcp.transfer.paths import resolve_target
 
 logger = logging.getLogger(__name__)
 
 _odata: ODataClient | None = None
 _tokens: TokenProvider | None = None
+_s3: S3Client | None = None
 
 
 def get_odata() -> ODataClient:
@@ -50,6 +51,20 @@ def set_odata(client: ODataClient | None) -> None:
     """Replace the shared OData client. For tests."""
     global _odata
     _odata = client
+
+
+def get_s3() -> S3Client:
+    """Return the shared S3 client, creating it on first use."""
+    global _s3
+    if _s3 is None:
+        _s3 = S3Client(get_settings())
+    return _s3
+
+
+def set_s3(client: S3Client | None) -> None:
+    """Replace the shared S3 client. For tests."""
+    global _s3
+    _s3 = client
 
 
 def _registry() -> JobRegistry:
@@ -85,46 +100,46 @@ async def _resolve_uuid(collection: str, product_id: str, odata_uuid: str | None
     return summary.odata_uuid
 
 
-async def download_product_archive(
+async def download_product(
     collection: str,
     product_id: str,
     odata_uuid: str | None = None,
     confirm: bool = False,
 ) -> DownloadReport:
-    """Download a complete product archive to local disk, as a background job.
+    """Download a complete product to local disk, as a background job.
 
-    This is the expensive option: a whole Sentinel-2 `.SAFE` archive is around 800 MB, while
-    a single band is ~150 MB and a quicklook is ~100 KB. Prefer `list_product_assets` and
-    fetch only what is needed, unless the user genuinely wants the full product.
+    This is the expensive option: a Sentinel-2 product is around 800 MB spread over hundreds
+    of files, while a single band is ~150 MB. Prefer `list_product_assets` and fetch only what
+    is needed, unless the user genuinely wants the whole product.
 
     Call this only with a `product_id` the user has chosen from a `search_products` result,
-    after telling them the estimated size. If the product is larger than the per-call cap the
-    tool refuses: report the size to the user and call again with `confirm=True` only if they
-    agree.
+    after telling them the size. If the product is larger than the per-call cap the tool
+    refuses: report the size and call again with `confirm=True` only if they agree.
 
-    Returns immediately with a `job_id`. Poll `download_status` for progress; the file path
-    appears when the job completes. The file is never returned through this channel.
+    The result is a `.SAFE` **directory**, not a zip. CDSE stores products unpacked on S3, so
+    the tree is rebuilt as-is and needs no extraction.
 
-    Passing `odata_uuid` from the search result saves a catalogue lookup.
+    Returns immediately with a `job_id`. Poll `download_status` for progress; the directory
+    path appears when the job completes. Files are never returned through this channel.
+
+    Requires S3 access keys. The OAuth client cannot authorise downloads.
     """
     settings = get_settings()
-    # Check credentials before doing anything else. Product metadata is readable without
-    # them, so without this the tool would happily queue a job that cannot possibly run.
-    if not settings.has_oauth:
+    # Check credentials first. Product metadata is readable without any, so without this the
+    # tool would queue a job that cannot possibly run and report success.
+    if not settings.has_s3:
         raise AuthRequired(
-            "Downloading requires CDSE OAuth credentials, which are not configured.",
+            "Downloading requires CDSE S3 access keys, which are not configured.",
             hint=(
-                "Set CDSE_CLIENT_ID and CDSE_CLIENT_SECRET from an OAuth client in the "
-                "Copernicus Data Space dashboard, then restart the server. Catalogue search "
+                "Create keys at https://eodata-s3keysmanager.dataspace.copernicus.eu/ and set "
+                "CDSE_S3_ACCESS_KEY and CDSE_S3_SECRET_KEY, then restart the server. Search "
                 "and list_product_assets keep working without them."
             ),
         )
 
     canonical = coll.canonical_collection_id(collection)
     uuid = await _resolve_uuid(canonical, product_id, odata_uuid)
-
-    odata = get_odata()
-    info = await odata.product_info(uuid)
+    info = await get_odata().product_info(uuid)
 
     if info.is_offline:
         raise OfflineProduct(
@@ -135,49 +150,54 @@ async def download_product_archive(
                 "one will do."
             ),
         )
+    if not info.s3_path:
+        raise NotFound(
+            f"CDSE reports no S3 location for {info.name}.",
+            hint="Pick another product; this one is not available on the object store.",
+        )
 
-    estimated = info.content_length or 0
-    _budget().check(estimated, confirmed=confirm)
+    s3 = get_s3()
+    bucket, prefix = split_s3_path(info.s3_path)
+    objects = await s3.list_objects(bucket, prefix)
+    total = sum(obj.size for obj in objects)
 
-    filename = info.name if info.name.lower().endswith(".zip") else f"{info.name}.zip"
-    target = resolve_target(settings.download_dir, filename)
+    _budget().check(total, confirmed=confirm)
 
     registry = _registry()
-    job = registry.create(
-        product_id=product_id, collection=canonical, bytes_total=info.content_length
-    )
+    job = registry.create(product_id=product_id, collection=canonical, bytes_total=total)
 
     async def runner(current: Job) -> None:
-        async def on_progress(done: int, total: int | None) -> None:
-            registry.progress(current, done, total)
+        async def on_progress(done: int, job_total: int | None) -> None:
+            registry.progress(current, done, job_total)
 
-        result = await download_stream(
-            open_stream=lambda start: odata.stream_archive(uuid, resume_from=start),
-            target=target,
+        result = await download_objects(
+            client=s3,
+            bucket=bucket,
+            prefix=prefix,
+            objects=objects,
+            destination_root=settings.download_dir,
+            directory_name=info.name,
             budget=_budget(),
-            expected_size=info.content_length,
-            checksum=info.checksum_value,
-            checksum_algorithm=info.checksum_algorithm,
             progress=on_progress,
         )
         registry.finish(
             current,
-            path=result.path,
-            cached=result.cached,
-            verified=result.checksum_verified,
+            path=result.directory,
+            cached=result.files_cached == len(objects),
+            verified=False,
         )
 
     registry.start(job, runner)
 
-    notes = [
-        f"Downloading {info.name} (~{human_bytes(info.content_length) or 'unknown size'}) "
-        f"to {target}.",
-        f"Poll download_status with job_id={job.job_id}. Do not poll in a tight loop.",
-    ]
-    if not info.checksum_value:
-        notes.append("CDSE published no checksum for this product; only its length is verified.")
-
-    return _report([job], notes)
+    return _report(
+        [job],
+        [
+            f"Downloading {info.name} ({len(objects)} files, "
+            f"~{human_bytes(total) or 'unknown size'}) into {settings.download_dir}.",
+            f"Poll download_status with job_id={job.job_id}. Do not poll in a tight loop.",
+            "The result is an unpacked .SAFE directory, not a zip archive.",
+        ],
+    )
 
 
 async def download_status(job_id: str | None = None, limit: int = 10) -> DownloadReport:
@@ -223,7 +243,7 @@ async def download_cancel(job_id: str) -> DownloadReport:
 
 
 TOOLS: list[ToolDef] = [
-    ToolDef(tool_guard(download_product_archive), DOWNLOADS),
+    ToolDef(tool_guard(download_product), DOWNLOADS),
     ToolDef(tool_guard(download_status), READ_ONLY),
     ToolDef(tool_guard(download_cancel), DOWNLOADS),
 ]

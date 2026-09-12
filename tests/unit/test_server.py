@@ -7,7 +7,7 @@ import pytest
 from cdse_local_mcp.server import build_server
 
 DISCOVERY_TOOLS = {"search_products", "list_product_assets", "list_collections"}
-DOWNLOAD_TOOLS = {"download_product_archive", "download_status", "download_cancel"}
+DOWNLOAD_TOOLS = {"download_product", "download_status", "download_cancel"}
 EXPECTED_TOOLS = DISCOVERY_TOOLS | DOWNLOAD_TOOLS
 
 
@@ -61,7 +61,7 @@ async def test_server_instructions_state_the_interaction_rules() -> None:
 async def test_download_tools_declare_that_they_write() -> None:
     """A client must be able to tell which tools touch the filesystem."""
     mcp = build_server()
-    for name in ("download_product_archive", "download_cancel"):
+    for name in ("download_product", "download_cancel"):
         annotations = (await mcp.get_tool(name)).annotations
         assert annotations is not None
         assert annotations.read_only_hint is False
@@ -74,8 +74,11 @@ async def test_download_status_is_read_only() -> None:
     assert annotations.read_only_hint is True
 
 
-async def test_the_archive_tool_warns_about_its_cost_and_requires_a_chosen_product() -> None:
-    description = (await build_server().get_tool("download_product_archive")).description or ""
+async def test_the_download_tool_warns_about_its_cost_and_what_it_produces() -> None:
+    description = (await build_server().get_tool("download_product")).description or ""
     assert "800 MB" in description
     assert "search_products" in description
     assert "confirm=True" in description
+    # The S3 transport yields an unpacked directory, which callers must not mistake for a zip.
+    assert "directory" in description
+    assert "S3 access keys" in description
