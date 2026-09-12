@@ -81,7 +81,9 @@ select = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/*" = ["T20"]
+# Tests legitimately print, poll for background jobs, and read files from async bodies.
+# These rules guard the event loop in the server, where they stay enforced.
+"tests/*" = ["T20", "ASYNC109", "ASYNC110", "ASYNC240"]
 
 [tool.mypy]
 python_version = "3.11"
