@@ -56,23 +56,68 @@ Supported extensions: **Filter (CQL2)**, Query, Fields, Sort, Free-text search.
 Search is unauthenticated. Prefer STAC for spatial/temporal queries, property filtering and
 asset discovery.
 
-### Collection IDs (confirmed subset)
+**Pagination is mandatory.** `/collections` holds **419** collections and returns at most
+**200** per request, with a `next` link carrying `limit`/`offset`. Code that reads the first
+page only will silently miss every Sentinel collection — they sort after the CLMS ones.
+Follow `next` links; never assume one page.
+
+### Collection IDs — verified against the live API, 2026-09-12
+
+The official documentation page lists IDs that **do not match the live API** (it shows
+`sentinel-3-olci-l1b`, `sentinel-5p-l2`, `copernicus-dem-cog`, `clms-ba-global-300m-daily-v4`;
+none of those exist). Trust `/collections`, not the doc page. Two naming conventions coexist:
+
+- **Sentinel and DEM collections use hyphens**: `sentinel-2-l1c`
+- **CLMS collections use underscores and a `_cog` suffix**: `clms_ndvi_global_300m_10daily_v3_cog`
 
 | STAC collection ID | Contents |
 |---|---|
-| `sentinel-1-grd` | Sentinel-1 Ground Range Detected |
-| `sentinel-2-l1c` | Sentinel-2 top-of-atmosphere |
-| `sentinel-2-l2a` | Sentinel-2 surface reflectance |
+| `sentinel-1-grd` | Ground Range Detected |
+| `sentinel-1-slc` | Single Look Complex (also `-burst`, `-wv`) |
+| `sentinel-1-ocn` | Ocean products |
+| `sentinel-1-global-mosaics` | S1 mosaics |
+| `sentinel-2-l1c` | Top-of-atmosphere reflectance |
+| `sentinel-2-l2a` | Surface reflectance |
 | `sentinel-2-global-mosaics` | Quarterly global mosaics |
-| `sentinel-3-olci-l1b` | OLCI Level-1B |
-| `sentinel-5p-l2` | Sentinel-5P Level-2 atmospheric products |
-| `copernicus-dem-cog` | Copernicus DEM, COG-tiled |
-| `clms-*` | CLMS products, e.g. `clms-ba-global-300m-daily-v4`, `clms-ndvi-global-300m-10daily-v3` |
+| `sentinel-3-olci-1-efr-ntc` | OLCI L1B full resolution (NRT/NTC variants) |
+| `sentinel-3-sl-2-lst-ntc` | SLSTR land surface temperature |
+| `sentinel-5p-l2-no2` | NO₂ (plus `-nrti`/`-offl`/`-rpro` timeliness variants) |
+| `sentinel-5p-l2-ch4`, `-co`, `-o3`, `-so2`, `-hcho`, `-cloud` | Other S5P L2 species |
+| `cop-dem-glo-30-dged-cog` | Copernicus DEM global 30 m, COG |
+| `cop-dem-glo-90-dged-cog` | Copernicus DEM global 90 m, COG |
+| `cop-dem-eea-10-laea-tif` | EEA DEM 10 m |
 
-Call `/collections` at runtime rather than shipping an exhaustive hardcoded list; the table
-above is for defaults and tests.
+Sentinel-3 and Sentinel-5P fan out into many timeliness variants (`-nrti` near-real-time,
+`-offl` offline, `-rpro` reprocessed, `-ntc`/`-stc` for S3). Resolve these at runtime from
+`/collections`; do not hardcode the full set.
 
-Source: [APIs/STAC](https://documentation.dataspace.copernicus.eu/APIs/STAC.html)
+### Item assets — Sentinel-2 example
+
+A `sentinel-2-l1c` item (verified: `S2A_MSIL1C_20240731T092031_N0511_R093_T34SEH_...`) exposes
+**21 assets**, which is what makes selective and windowed download possible:
+
+| Asset key | Type | Href scheme |
+|---|---|---|
+| `B01` … `B12`, `B8A` | `image/jp2` | `s3://eodata/Sentinel-2/MSI/L1C/<y>/<m>/<d>/<product>.SAFE/…` |
+| `TCI` | `image/jp2` | `s3://eodata/…` (true-colour composite) |
+| `Product` | `application/zip` | `https://download.dataspace.copernicus.eu/odata/v1/Products(<uuid>)/$value` |
+| `thumbnail` | `image/jpeg` | `https://datahub.creodias.eu/odata/v1/Assets(<id>)/$value` |
+| `safe_manifest`, `product_metadata`, `granule_metadata`, `inspire_metadata`, `datastrip_metadata` | `application/xml` | `s3://eodata/…` |
+
+**Two things follow, and they shape the whole download design:**
+
+1. The `Product` asset href **contains the OData UUID**. A STAC search already yields
+   everything needed for a whole-product download — no separate OData lookup required.
+2. Band assets are individually addressable `s3://` objects, so a single band (~100–180 MB)
+   can be fetched instead of the ~800 MB archive, and a *window* of a band can be read
+   without fetching the band at all. See [downloads.md](downloads.md).
+
+Useful item properties: `eo:cloud_cover`, `grid:code` (MGRS tile, e.g. `MGRS-34SEH`),
+`processing:level`, `product:type`, `platform`, `sat:relative_orbit`, `view:sun_elevation`,
+plus `storage:schemes` and `auth:schemes` describing how to reach the `s3://` hrefs.
+
+Source: [APIs/STAC](https://documentation.dataspace.copernicus.eu/APIs/STAC.html) and live
+`/collections` + `/search` responses.
 
 ---
 

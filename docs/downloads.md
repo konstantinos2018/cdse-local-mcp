@@ -108,6 +108,90 @@ A user asking "get me the NDVI bands for this field in June" needs two 100 MB JP
 
 ---
 
+## Granularity: the three tiers
+
+This is the part users ask about most: *"can I download just my bounding box instead of the
+whole file?"* Yes — but which mechanism applies depends on what you ask for, and only one of
+the three preserves SAFE structure.
+
+| Tier | Tool | Mechanism | Typical size | Output format |
+|---|---|---|---|---|
+| **1. Whole product** | `download_product_archive` | `Products(<uuid>)/$value`, or the STAC `Product` asset | ~800 MB (S2 L1C), up to 8 GB (S1 GRD) | `.zip` → valid `.SAFE` |
+| **2. Selected files** | `download_assets` | S3 GET of individual `s3://eodata/…` band objects, or OData `Nodes(<path>)/$value` | ~100–180 MB per 10 m band | Individual `.jp2` / `.xml` files |
+| **3. Spatial window** | `download_window` | **Windowed read**: GDAL/rasterio reads only the JP2 tiles intersecting the bbox over `/vsis3` | ~0.5–5 MB for a 5×5 km crop | **GeoTIFF** (optionally COG) |
+
+**Tier 3 is the important one, and it comes with an honest caveat.** A `.SAFE` product cannot
+be spatially subset and remain a valid `.SAFE` — the format is an archive with fixed
+granule/metadata structure. So a bbox request necessarily produces a *new raster*, not a
+cropped SAFE. If a user explicitly needs SAFE format, they need tier 1 or 2.
+
+### How tier 3 works
+
+Sentinel-2 band assets are JPEG 2000 with internal tiling, so GDAL can decode only the
+codeblocks covering a window rather than the whole 10 980 × 10 980 image. Verified working
+stack, no system GDAL needed: `pip install rasterio` ships **GDAL 3.12.4 with the
+`JP2OpenJPEG` driver** (confirmed 2026-09-12).
+
+```python
+# transfer/window.py, in outline
+with rasterio.Env(AWS_S3_ENDPOINT="eodata.dataspace.copernicus.eu", AWS_HTTPS="YES",
+                  AWS_VIRTUAL_HOSTING="FALSE", GDAL_DISABLE_READDIR_ON_OPEN="YES"):
+    with rasterio.open("/vsis3/eodata/Sentinel-2/MSI/L1C/.../B04.jp2") as src:
+        win = rasterio.windows.from_bounds(*bounds_in_src_crs, transform=src.transform)
+        data = src.read(1, window=win)          # only the intersecting tiles are fetched
+        profile = src.profile | {"driver": "GTiff", "height": ..., "width": ...,
+                                 "transform": src.window_transform(win)}
+```
+
+Non-obvious requirements:
+
+- **Reproject the bbox first.** The user's bbox is EPSG:4326; Sentinel-2 granules are in a
+  UTM zone (Gulf of Patras → EPSG:32634, tile `T34SEH`). Transform the bounds into the
+  source CRS before building the window, or the read silently lands in the wrong place.
+- **`GDAL_DISABLE_READDIR_ON_OPEN=YES`** — without it GDAL lists the whole `.SAFE` directory,
+  which is hundreds of objects and counts against the request quota.
+- **Multi-resolution bands.** 10 m (B02/B03/B04/B08), 20 m (B05–B07, B8A, B11, B12) and 60 m
+  (B01, B09, B10) bands have different grids. Build the window per band; do not reuse a pixel
+  window across resolutions. Resample only if the caller asks for a stacked output.
+- **Off-tile bboxes.** A bbox may fall partly or wholly outside the granule. Intersect
+  first and report the actual covered extent rather than returning a padded array.
+- **Still counts against quota.** Ranged reads are cheap in bytes but each is a request.
+- **L2A `.SAFE` products** put JP2s under `GRANULE/*/IMG_DATA/R10m/` etc.; L1C uses
+  `IMG_DATA/` directly. Resolve paths from the STAC asset hrefs, never by string-building.
+
+Tier 3 needs S3 credentials. Without them, fall back to tier 2 and say so.
+
+### Alternative considered
+
+Sentinel Hub's Process API does server-side subsetting, band math and reprojection and
+returns a small GeoTIFF for exactly the requested bbox — cleaner than tier 3 and the
+fit-for-purpose tool for analysis-ready output. It is **out of scope for v1** and costs
+processing units (10 000 PU/month free). If tier 3 proves awkward in practice, adding the
+Process API is the natural next step, not more windowed-read machinery.
+
+---
+
+## Resolving place names
+
+Users ask for *"the Gulf of Patras"*, not `[21.3, 38.1, 21.9, 38.4]`. The server does not
+guess coordinates itself:
+
+- **Tools accept geometry**, in `bbox`, GeoJSON or WKT form, always EPSG:4326 lon/lat.
+- **The calling model supplies the coordinates** from the place name. This is accurate enough
+  for product search by construction: Sentinel-2 granules are 110 × 110 km, so an approximate
+  bbox selects the same MGRS tile a precise one would.
+- **Always echo the resolved geometry back** in the tool result (`bbox_used`, and
+  `grid:code` of the matched items) so the user can see and correct what was searched.
+- Precision only matters for **tier 3**, where the bbox defines the output pixels. There, the
+  user generally has a real AOI; if they gave only a place name, state the bbox used.
+
+An optional `resolve_place_name` tool over a gazetteer (e.g. Nominatim, with its 1 req/s
+policy, a proper `User-Agent` and on-disk caching) is a **post-v1 nicety**, not a
+requirement — and it introduces a non-CDSE network dependency, so it stays opt-in and
+disabled by default.
+
+---
+
 ## Filesystem safety
 
 The server writes to the user's disk on an LLM's instruction. Treat every path as hostile.

@@ -16,7 +16,9 @@ not gaps:
 - Sentinel Hub processing (Process / Statistical / Catalog APIs)
 - openEO process graphs and batch jobs
 - Remote HTTP / SSE transport and multi-user session handling
-- Raster analysis, reprojection, mosaicking, or any GDAL-dependent processing
+- Raster *analysis*: band math, indices, mosaicking, time-series compositing. The only
+  raster work in scope is reading a spatial window out of a product and writing it as a
+  GeoTIFF (`transfer/window.py`, via rasterio) — cropping, not computing.
 - Anything that writes back to CDSE (on-demand production, subscriptions, orders)
 
 ## Commands
@@ -44,7 +46,7 @@ src/copernicus_dataspace_mcp/
 ├── errors.py            # typed errors -> structured tool results
 ├── clients/             # stac.py · odata.py · s3.py    (HTTP/S3 only, no MCP imports)
 ├── domain/              # models.py · collections.py · geometry.py
-├── transfer/            # budget.py · jobs.py · download.py
+├── transfer/            # budget.py · jobs.py · download.py · window.py
 └── tools/               # discovery.py · products.py · downloads.py   (thin adapters)
 tests/
 ├── unit/                # mocked; the default suite
@@ -92,7 +94,8 @@ lines.
 Tools are a user interface whose user is a language model. Design accordingly.
 
 - **Names** are `verb_noun`, lowercase, stable: `search_products`, `get_product`,
-  `list_product_assets`, `download_assets`, `download_status`.
+  `list_product_assets`, `download_assets`, `download_window`,
+  `download_product_archive`, `download_status`, `download_cancel`.
 - **The docstring is the contract.** Say what the tool does, when to prefer it over a
   sibling, what the units and CRS are, and what it costs (quota, bytes, time). Write it for a
   model that cannot see the implementation.
@@ -129,12 +132,29 @@ configured — report the limitation rather than failing at import time.
 
 These cost real debugging time. [docs/cdse-apis.md](docs/cdse-apis.md) has the full reference.
 
-- **Two catalogue APIs, different identifiers.** STAC uses `sentinel-2-l2a`; OData uses
+- **Two catalogue APIs, different identifiers.** STAC uses `sentinel-2-l1c`; OData uses
   collection name `SENTINEL-2` plus a `productType` attribute filter. Map between them in
   `domain/collections.py` — never hardcode either in `tools/`.
+- **The official docs list stale STAC collection IDs.** Verified live IDs are in
+  [docs/cdse-apis.md](docs/cdse-apis.md); the doc page's `sentinel-5p-l2`,
+  `sentinel-3-olci-l1b` and `copernicus-dem-cog` do not exist. Trust `/collections`.
+- **`/collections` needs pagination** — 419 collections, 200 per page, and every Sentinel
+  collection sorts *after* the CLMS ones. Reading page one only finds no Sentinel data at all.
+- **Naming conventions differ by product family.** Sentinel and DEM use hyphens
+  (`sentinel-2-l1c`); CLMS uses underscores with a `_cog` suffix
+  (`clms_ndvi_global_300m_10daily_v3_cog`).
 - **Which to use.** STAC for geospatial/temporal search, CQL2 filtering and asset discovery.
-  OData for UUID-addressed product metadata, node traversal and download URLs. STAC item IDs
-  and OData UUIDs are different keys for the same product; keep both on the domain model.
+  OData for node traversal and attributes not in STAC. STAC item IDs and OData UUIDs are
+  different keys for the same product; keep both on the domain model. Note that a STAC item's
+  `Product` asset href **already contains the OData UUID**, so search alone is usually
+  enough — do not make a second OData call to find it.
+- **Band assets are individually addressable.** Sentinel-2 items expose `B01`–`B12`, `B8A`
+  and `TCI` as separate `s3://eodata/…` JP2 objects. This is what makes per-band and windowed
+  download possible; prefer it over the whole archive.
+- **Granule CRS is UTM, not WGS84.** Sentinel-2 rasters sit in a UTM zone (Gulf of Patras →
+  EPSG:32634). Reproject a user bbox into the source CRS before building a read window, or
+  the crop lands somewhere else entirely. Band resolutions differ (10/20/60 m) — build the
+  window per band.
 - **Two hosts.** Catalogue queries go to `catalogue.dataspace.copernicus.eu`; downloads to
   `download.dataspace.copernicus.eu`. Using the wrong one fails confusingly.
 - **Geometry.** Bounding boxes are `[west, south, east, north]` in EPSG:4326 — lon/lat, not
@@ -181,7 +201,8 @@ These cost real debugging time. [docs/cdse-apis.md](docs/cdse-apis.md) has the f
 
 ## Open decisions
 
-Ask before assuming; these are not yet settled.
+Ask before assuming; these are not yet settled. Once decided they are recorded here and this
+section shrinks — it is the list of things a session must not guess at.
 
 - GitHub owner, final package name on PyPI, and author attribution
 - License (Apache-2.0 recommended, not yet confirmed)
