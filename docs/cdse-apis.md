@@ -33,7 +33,31 @@ The documentation also describes a `password` grant with `client_id=cdse-public`
 reusable account password in MCP client configuration files. The docs themselves warn:
 "Please do not hardcode the username and password in the application code."
 
-- Access token lifetime: **10 minutes**
+### Which token works where — verified empirically, 2026-09-13
+
+**A Sentinel Hub OAuth client cannot download products.** A `client_credentials` token from
+an `sh-*` client carries `scope: email profile user-context` and no realm roles, and the
+OData download service rejects it:
+
+```
+401  {"code":"DAT-ZIP-609","message":"Token audience not allowed"}
+```
+
+| Operation | Works with `sh-*` client credentials? |
+|---|---|
+| STAC search, `/collections` | Yes — no token needed at all |
+| OData `Products(<uuid>)` metadata | Yes — no token needed either |
+| OData `Products(<uuid>)/$value` download | **No** — audience rejected |
+| Sentinel Hub Process / Catalog / Statistical | Yes (out of v1 scope) |
+
+The documentation only ever shows the **password grant** (`client_id=cdse-public`) for
+catalogue downloads, which this project does not support. **Downloads therefore go over S3**,
+using access keys from the S3 keys manager — no OAuth involved.
+
+Also observed: a `client_credentials` token came back with `expires_in: 1800`, not the 600
+the Quotas page states. Do not hardcode either; read `expires_in`.
+
+- Access token lifetime: **10 minutes** per the Quotas page, 30 observed for client credentials
 - Refreshable within: **60 minutes** of generation
 - Max active sessions per account: **100**
 
@@ -129,6 +153,9 @@ Two different hosts. Using the wrong one produces confusing failures.
 Catalogue queries:  https://catalogue.dataspace.copernicus.eu/odata/v1/Products
 Download / nodes:   https://download.dataspace.copernicus.eu/odata/v1/Products(<uuid>)
 ```
+
+Requesting `$value` on the catalogue host answers `301` to the download host, so the two are
+not interchangeable but the redirect is followed for you.
 
 ### Query shape
 

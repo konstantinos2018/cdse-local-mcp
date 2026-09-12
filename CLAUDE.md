@@ -174,9 +174,15 @@ which credential is missing — never fail at import time.
 
 | Configured | Available |
 |---|---|
-| nothing | `search_products`, `get_product`, `list_product_assets` |
-| + OAuth client | `download_assets`, `download_product_archive` |
-| + S3 keys | `download_window`, faster large transfers |
+| nothing | all discovery: `search_products`, `list_product_assets`, `list_collections`, and OData product metadata |
+| + S3 keys | every download: `download_product_archive`, and later selective and windowed reads |
+| + OAuth client | nothing in v1 — reserved for Sentinel Hub APIs, which are out of scope |
+
+**Downloads use S3, not OAuth.** A Sentinel Hub `sh-*` client-credentials token is rejected
+by the OData download service with `DAT-ZIP-609 "Token audience not allowed"`; only a
+password-grant `cdse-public` token is accepted there, and this project does not support
+account passwords. Verified against the live API on 2026-09-13; see
+[docs/cdse-apis.md](docs/cdse-apis.md).
 
 README documents *that* both credentials are required and links to the CDSE dashboard and the
 S3 keys manager; it does not walk through creating them.
