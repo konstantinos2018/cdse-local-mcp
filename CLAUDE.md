@@ -50,21 +50,22 @@ Run `ruff`, `mypy` and `pytest` before declaring any change done.
 src/cdse_local_mcp/
 ├── server.py            # FastMCP instance + tool registration ONLY
 ├── config.py            # pydantic-settings: credentials, download root, caps
-├── auth.py              # TokenProvider: client credentials, refresh, lock
+├── auth.py              # TokenProvider: one per process, client credentials, refresh-ahead
 ├── errors.py            # typed errors -> structured tool results
-├── clients/             # stac.py · odata.py* · s3.py*   (HTTP/S3 only, no MCP imports)
+├── clients/             # stac.py · odata.py · s3.py*   (HTTP/S3 only, no MCP imports)
 ├── domain/              # models.py · collections.py · geometry.py · timerange.py
-├── transfer/*           # budget.py · jobs.py · download.py · window.py
-└── tools/               # discovery.py · downloads.py*  (thin adapters)
+├── transfer/            # budget.py · paths.py · download.py · jobs.py · window.py*
+└── tools/               # discovery.py · downloads.py  (thin adapters)
 tests/
 ├── unit/                # mocked; the default suite
 ├── live/                # @pytest.mark.live, hits real CDSE (needs no credentials)
 └── fixtures/            # trimmed captures of real responses
 ```
 
-`*` not built yet. **Current state**: discovery is complete and tested — `search_products`,
-`list_product_assets`, `list_collections`, with 62 unit tests and 4 live tests. Downloads are
-the next milestone; build Sentinel-2 whole-product first, per the order below.
+`*` not built yet. **Current state**: discovery and whole-product download are complete —
+`search_products`, `list_product_assets`, `list_collections`, `download_product_archive`,
+`download_status`, `download_cancel`, with 134 unit tests and 4 live tests. Next milestones,
+in order: selective asset download (bands, OLCI variables), then windowed reads.
 
 **The layering rule.** `tools/` modules are thin adapters: validate input, call a client or
 transfer function, shape the result. All CDSE knowledge lives in `clients/` and `domain/` and
@@ -221,6 +222,14 @@ These cost real debugging time. [docs/cdse-apis.md](docs/cdse-apis.md) has the f
   before enqueueing a transfer.
 - **Quota is finite and shared.** 10 000 OData requests/month, 12 TB per rolling 30 days,
   4 concurrent connections. Cache aggressively; never poll in a tight loop.
+- **Product metadata is readable without credentials; only the bytes need a token.** So a
+  download tool must check `settings.has_oauth` *before* doing anything, or it will happily
+  queue a job that cannot possibly run and report success.
+- **httpx strips `Authorization` on cross-host redirects, and `$value` always redirects** to
+  a delivery host. Following redirects automatically yields a 401 that looks like bad
+  credentials. `ODataClient` follows them by hand, re-attaching the token each hop.
+- **`Online` absent means online.** Only archived products carry the flag, so treat a missing
+  value as available rather than defaulting to offline.
 - **Rate limiting arrives far sooner than the documented 2000/minute.** A handful of
   requests in quick succession can return 429 — running the four live tests together did it.
   `StacClient` retries 429 and 5xx three times with backoff, honouring `Retry-After`, and

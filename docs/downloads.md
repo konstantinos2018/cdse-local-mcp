@@ -224,6 +224,25 @@ disabled by default.
 
 ---
 
+## Implementation notes
+
+Learned while building the whole-product path; all are covered by tests.
+
+- **Metadata is unauthenticated, bytes are not.** `Products(<uuid>)` returns size, checksum
+  and `Online` with no token at all. Only `$value` needs one. Check credentials up front, or
+  you will queue a job that reports success and then fails in the background.
+- **`$value` redirects across hosts, and httpx strips `Authorization` when it does.** Follow
+  redirects manually and re-attach the token on every hop. Automatic redirects produce a 401
+  that reads like bad credentials and sends you hunting in the wrong place.
+- **`Online` absent means online.** Only archived products carry the flag.
+- **A server may ignore `Range`** and answer 200 with the whole body. Appending that to a
+  partial file silently corrupts the archive, so check for 206 before appending.
+- **Cancellation loses up to one chunk** (1 MiB) of buffered-but-unwritten data. Harmless:
+  resume restarts from the last byte actually on disk.
+- **Prefer MD5 over BLAKE3.** CDSE publishes both; `hashlib` can verify only the former
+  without a new dependency. An unverifiable algorithm reports `checksum_verified: false`
+  rather than failing the download.
+
 ## Filesystem safety
 
 The server writes to the user's disk on an LLM's instruction. Treat every path as hostile.

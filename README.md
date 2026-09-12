@@ -5,8 +5,8 @@ search the Sentinel catalogue, inspect products, and retrieve them to local disk
 
 It runs locally over stdio, so the data lands on your machine and stays there.
 
-> **Status: alpha.** Catalogue discovery works and is tested against the live API. Download
-> tools are in progress — see [Roadmap](#roadmap).
+> **Status: alpha.** Catalogue discovery and whole-product download work. Selective and
+> windowed downloads are next — see [Roadmap](#roadmap).
 
 ## Why
 
@@ -98,6 +98,9 @@ npx @modelcontextprotocol/inspector uv run cdse-local-mcp
 | `search_products` | Find products by collection, area and date, newest first |
 | `list_product_assets` | List the individual files inside a product, with friendly names |
 | `list_collections` | Browse the 419 CDSE collections |
+| `download_product_archive` | Fetch a whole product to disk, as a background job |
+| `download_status` | Check progress; returns the file path when complete |
+| `download_cancel` | Stop a download, keeping the partial file for resuming |
 
 ## Supported collections
 
@@ -118,7 +121,7 @@ says so when it returns both.
 ## Roadmap
 
 - [x] Catalogue discovery over STAC
-- [ ] Whole-product download (Sentinel-2 first), as background jobs with progress
+- [x] Whole-product download as background jobs, resumable and checksum-verified
 - [ ] Selective download: individual bands and OLCI variables
 - [ ] Windowed reads: a bounding box out of a product without fetching the whole file
 
