@@ -12,92 +12,39 @@ from __future__ import annotations
 
 import logging
 
-from cdse_local_mcp.auth import TokenProvider
-from cdse_local_mcp.clients.odata import ODataClient
-from cdse_local_mcp.clients.s3 import S3Client, split_s3_path
+from cdse_local_mcp.clients.s3 import S3Object, split_s3_path
 from cdse_local_mcp.config import get_settings
 from cdse_local_mcp.domain import collections as coll
-from cdse_local_mcp.domain.models import DownloadReport, Job, ProductSummary, human_bytes
-from cdse_local_mcp.errors import (
-    AuthRequired,
-    InvalidRequest,
-    NotFound,
-    OfflineProduct,
-    tool_guard,
+from cdse_local_mcp.domain.models import DownloadReport, Job, human_bytes
+from cdse_local_mcp.errors import InvalidRequest, NotFound, tool_guard
+from cdse_local_mcp.tools import DOWNLOADS, READ_ONLY, ToolDef
+from cdse_local_mcp.tools._shared import (
+    _budget,
+    _product_context,
+    _registry,
+    _report,
+    _require_s3,
+    _s3_href,
+    get_odata,
+    get_s3,
+    set_odata,
+    set_s3,
 )
-from cdse_local_mcp.tools import DOWNLOADS, READ_ONLY, ToolDef, discovery
-from cdse_local_mcp.transfer.budget import TransferBudget, get_budget
 from cdse_local_mcp.transfer.bulk import download_objects
-from cdse_local_mcp.transfer.jobs import JobRegistry, get_registry
 
 logger = logging.getLogger(__name__)
 
-_odata: ODataClient | None = None
-_tokens: TokenProvider | None = None
-_s3: S3Client | None = None
-
-
-def get_odata() -> ODataClient:
-    """Return the shared OData client, creating it and its token provider on first use."""
-    global _odata, _tokens
-    if _odata is None:
-        settings = get_settings()
-        _tokens = TokenProvider(settings)
-        _odata = ODataClient(settings, _tokens)
-    return _odata
-
-
-def set_odata(client: ODataClient | None) -> None:
-    """Replace the shared OData client. For tests."""
-    global _odata
-    _odata = client
-
-
-def get_s3() -> S3Client:
-    """Return the shared S3 client, creating it on first use."""
-    global _s3
-    if _s3 is None:
-        _s3 = S3Client(get_settings())
-    return _s3
-
-
-def set_s3(client: S3Client | None) -> None:
-    """Replace the shared S3 client. For tests."""
-    global _s3
-    _s3 = client
-
-
-def _registry() -> JobRegistry:
-    return get_registry(get_settings().download_dir)
-
-
-def _budget() -> TransferBudget:
-    return get_budget(get_settings())
-
-
-def _report(jobs: list[Job], notes: list[str] | None = None) -> DownloadReport:
-    budget = _budget()
-    return DownloadReport(
-        jobs=jobs,
-        session_bytes_used=human_bytes(budget.spent_bytes),
-        session_bytes_remaining=human_bytes(budget.remaining_bytes),
-        notes=notes or [],
-    )
-
-
-async def _resolve_uuid(collection: str, product_id: str, odata_uuid: str | None) -> str:
-    """Find the OData UUID for a product, preferring one the caller already has."""
-    if odata_uuid:
-        return odata_uuid
-
-    item = await discovery.get_client().get_item(collection=collection, item_id=product_id)
-    summary = ProductSummary.from_stac_item(item, collection)
-    if not summary.odata_uuid:
-        raise NotFound(
-            f"{product_id} does not expose a downloadable archive.",
-            hint="Check the product id, or use list_product_assets to see what is offered.",
-        )
-    return summary.odata_uuid
+# Re-exported so callers and tests have one obvious place to swap clients.
+__all__ = [
+    "download_assets",
+    "download_cancel",
+    "download_product",
+    "download_status",
+    "get_odata",
+    "get_s3",
+    "set_odata",
+    "set_s3",
+]
 
 
 async def download_product(
@@ -125,39 +72,11 @@ async def download_product(
     Requires S3 access keys. The OAuth client cannot authorise downloads.
     """
     settings = get_settings()
-    # Check credentials first. Product metadata is readable without any, so without this the
-    # tool would queue a job that cannot possibly run and report success.
-    if not settings.has_s3:
-        raise AuthRequired(
-            "Downloading requires CDSE S3 access keys, which are not configured.",
-            hint=(
-                "Create keys at https://eodata-s3keysmanager.dataspace.copernicus.eu/ and set "
-                "CDSE_S3_ACCESS_KEY and CDSE_S3_SECRET_KEY, then restart the server. Search "
-                "and list_product_assets keep working without them."
-            ),
-        )
-
+    _require_s3()
     canonical = coll.canonical_collection_id(collection)
-    uuid = await _resolve_uuid(canonical, product_id, odata_uuid)
-    info = await get_odata().product_info(uuid)
-
-    if info.is_offline:
-        raise OfflineProduct(
-            f"{info.name} is on long-term archive and cannot be downloaded directly.",
-            hint=(
-                "It needs a Data Workspace order first. Free-tier limits are 25 products per "
-                "month and one active order at a time. Choose an online product instead if "
-                "one will do."
-            ),
-        )
-    if not info.s3_path:
-        raise NotFound(
-            f"CDSE reports no S3 location for {info.name}.",
-            hint="Pick another product; this one is not available on the object store.",
-        )
+    name, bucket, prefix, _uuid, _assets = await _product_context(canonical, product_id, odata_uuid)
 
     s3 = get_s3()
-    bucket, prefix = split_s3_path(info.s3_path)
     objects = await s3.list_objects(bucket, prefix)
     total = sum(obj.size for obj in objects)
 
@@ -176,7 +95,7 @@ async def download_product(
             prefix=prefix,
             objects=objects,
             destination_root=settings.download_dir,
-            directory_name=info.name,
+            directory_name=name,
             budget=_budget(),
             progress=on_progress,
         )
@@ -192,10 +111,118 @@ async def download_product(
     return _report(
         [job],
         [
-            f"Downloading {info.name} ({len(objects)} files, "
+            f"Downloading {name} ({len(objects)} files, "
             f"~{human_bytes(total) or 'unknown size'}) into {settings.download_dir}.",
             f"Poll download_status with job_id={job.job_id}. Do not poll in a tight loop.",
             "The result is an unpacked .SAFE directory, not a zip archive.",
+        ],
+    )
+
+
+async def download_assets(
+    collection: str,
+    product_id: str,
+    assets: list[str],
+    odata_uuid: str | None = None,
+    confirm: bool = False,
+) -> DownloadReport:
+    """Download only the named files from a product, as a background job.
+
+    Almost always the right choice. A Sentinel-2 product is ~785 MiB across 66 files, but one
+    10 m band is ~110 MiB and a 60 m band is ~3 MiB. For Sentinel-3 OLCI water quality, three
+    variables plus geolocation are tens of megabytes against a ~250 MiB product.
+
+    `assets` takes STAC asset keys or the friendly names from `list_product_assets`:
+      - Sentinel-2 bands: `B02` `B03` `B04` `B08` ... `B8A`, `TCI`, or `red_10m`, `nir_10m`
+      - OLCI water quality: `chl-Nn`, `tsm-Nn`, `trsp`, `wqsf`, or `chlorophyll_nn`
+
+    For OLCI, always include `geo-coordinates` — it holds the per-pixel latitude and longitude
+    without which the values cannot be placed on a map — and `wqsf`, the quality flags that
+    must be applied before any retrieval is interpreted.
+
+    Files are written into the product's `.SAFE` or `.SEN3` directory structure, so fetching
+    more assets later fills in the same tree and already-present files are not re-downloaded.
+
+    Returns immediately with a `job_id`; poll `download_status`. Requires S3 access keys.
+    """
+    settings = get_settings()
+    _require_s3()
+
+    if not assets:
+        raise InvalidRequest(
+            "No assets were requested.",
+            hint="Call list_product_assets to see what this product offers, then name some.",
+        )
+
+    canonical = coll.canonical_collection_id(collection)
+    name, bucket, prefix, _uuid, item_assets = await _product_context(
+        canonical, product_id, odata_uuid
+    )
+
+    available = [key for key, value in item_assets.items() if _s3_href(value)]
+    wanted: dict[str, str] = {}
+    for request in assets:
+        key = coll.match_asset_key(canonical, request, available)
+        if key is None:
+            raise InvalidRequest(
+                f"{product_id} has no downloadable asset matching {request!r}.",
+                hint=(
+                    "Available: " + ", ".join(sorted(available)[:40]) + ". Friendly names from "
+                    "list_product_assets also work."
+                ),
+            )
+        wanted[key] = str(_s3_href(item_assets[key]))
+
+    s3 = get_s3()
+    sizes = {obj.key: obj.size for obj in await s3.list_objects(bucket, prefix)}
+    objects: list[S3Object] = []
+    for key, href in wanted.items():
+        _, object_key = split_s3_path(href)
+        if object_key not in sizes:
+            raise NotFound(
+                f"The catalogue lists {key} but the object store does not hold it.",
+                hint="Try another product, or download the whole product instead.",
+            )
+        objects.append(S3Object(key=object_key, size=sizes[object_key]))
+
+    total = sum(obj.size for obj in objects)
+    _budget().check(total, confirmed=confirm)
+
+    registry = _registry()
+    job = registry.create(product_id=product_id, collection=canonical, bytes_total=total)
+
+    async def runner(current: Job) -> None:
+        async def on_progress(done: int, job_total: int | None) -> None:
+            registry.progress(current, done, job_total)
+
+        result = await download_objects(
+            client=s3,
+            bucket=bucket,
+            prefix=prefix,
+            objects=objects,
+            destination_root=settings.download_dir,
+            directory_name=name,
+            budget=_budget(),
+            progress=on_progress,
+        )
+        registry.finish(
+            current,
+            path=result.directory,
+            cached=result.files_cached == len(objects),
+            verified=False,
+        )
+
+    registry.start(job, runner)
+
+    whole_product = sum(sizes.values())
+    return _report(
+        [job],
+        [
+            f"Downloading {len(objects)} asset(s) from {name}: {', '.join(sorted(wanted))} "
+            f"(~{human_bytes(total)}), into {settings.download_dir}.",
+            f"That is {human_bytes(total)} instead of {human_bytes(whole_product)} for the "
+            "whole product.",
+            f"Poll download_status with job_id={job.job_id}. Do not poll in a tight loop.",
         ],
     )
 
@@ -244,6 +271,7 @@ async def download_cancel(job_id: str) -> DownloadReport:
 
 TOOLS: list[ToolDef] = [
     ToolDef(tool_guard(download_product), DOWNLOADS),
+    ToolDef(tool_guard(download_assets), DOWNLOADS),
     ToolDef(tool_guard(download_status), READ_ONLY),
     ToolDef(tool_guard(download_cancel), DOWNLOADS),
 ]
