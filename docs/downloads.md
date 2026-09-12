@@ -70,6 +70,10 @@ long-lived.
 Implemented and verified: S3 listing plus header-signed ranged GETs. Presigned URLs are
 refused by CDSE's gateway, so the signature goes in the headers.
 
+Tiers 1 and 2 are built. Selected files are resolved from the STAC item's `s3://` asset
+hrefs, sized from a single bucket listing, and written into the product's directory tree, so
+asking for more assets later tops up the same `.SAFE` and never re-fetches what is present.
+
 Exactly one `TokenProvider` exists, refreshing ahead of expiry behind an `asyncio.Lock`. No
 tool or client body mints a token inline. Long OData transfers re-authenticate on retry
 rather than assuming the initial token survives.
@@ -119,7 +123,7 @@ the three preserves SAFE structure.
 | Tier | Tool | Mechanism | Typical size | Output format |
 |---|---|---|---|---|
 | **1. Whole product** | `download_product_archive` | `Products(<uuid>)/$value`, or the STAC `Product` asset | ~800 MB (S2 L1C), up to 8 GB (S1 GRD) | `.zip` → valid `.SAFE` |
-| **2. Selected files** | `download_assets` | S3 GET of individual `s3://eodata/…` band objects, or OData `Nodes(<path>)/$value` | ~100–180 MB per 10 m band | Individual `.jp2` / `.xml` files |
+| **2. Selected files** | `download_assets` | S3 GET of the individual `s3://eodata/…` objects a STAC item names | ~25–115 MiB per 10 m band | Files written into the product tree |
 | **3. Spatial window** | `download_window` | **Gridded (S2)**: GDAL/rasterio reads only the JP2 tiles intersecting the bbox over `/vsis3`. **Swath (OLCI)**: mask by per-pixel lat/lon, slice the variable arrays | ~0.5–5 MB for a 5×5 km crop | **GeoTIFF** (S2) or **CSV/Parquet table** (OLCI) |
 
 **Tier 3 is the important one, and it comes with an honest caveat.** A `.SAFE` product cannot

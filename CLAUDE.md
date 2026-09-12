@@ -64,9 +64,10 @@ tests/
 
 `*` not built yet. **Current state**: discovery and whole-product download are complete —
 `search_products`, `list_product_assets`, `list_collections`, `download_product`,
-`download_status`, `download_cancel`. Verified end to end on 2026-09-13: a real Sentinel-2
-L1C product, 66 files and 785 MiB, rebuilt on disk with an exact size match. Next milestones,
-in order: selective asset download (bands, OLCI variables), then windowed reads.
+`download_assets`, `download_status`, `download_cancel`. Verified end to end on 2026-09-13
+against real products: a whole Sentinel-2 L1C scene (66 files, 785 MiB, exact size match) and
+a two-band selective fetch (51.8 MiB instead of 204.7 MiB) whose output computes sensible
+NDVI. Next milestone: windowed reads (`transfer/window.py`).
 
 **The layering rule.** `tools/` modules are thin adapters: validate input, call a client or
 transfer function, shape the result. All CDSE knowledge lives in `clients/` and `domain/` and

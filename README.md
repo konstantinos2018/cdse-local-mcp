@@ -35,6 +35,15 @@ to bytes on disk.
 told to ask you rather than pick one. Quietly returning the five least-cloudy scenes when you
 asked about a specific date is a wrong answer that looks right.
 
+**Ask for bands, not products.** `download_assets` takes the files you actually need, by key
+or friendly name, and writes them into the product's directory structure so later requests
+top up the same tree:
+
+```
+download_assets(..., assets=["red_10m", "nir_10m"])
+  -> B04, B08: 51.8 MiB instead of 204.7 MiB for the whole product
+```
+
 **Products arrive unpacked.** CDSE stores a `.SAFE` as a tree of objects rather than a zip,
 so a download rebuilds that tree on disk — ready to open in QGIS or rasterio, no extraction
 step. A real Sentinel-2 L1C scene is 66 files and ~785 MiB.
@@ -107,6 +116,7 @@ npx @modelcontextprotocol/inspector uv run cdse-local-mcp
 | `search_products` | Find products by collection, area and date, newest first |
 | `list_product_assets` | List the individual files inside a product, with friendly names |
 | `list_collections` | Browse the 419 CDSE collections |
+| `download_assets` | Fetch only the bands or variables you name — usually what you want |
 | `download_product` | Fetch a whole product to disk, as a background job |
 | `download_status` | Check progress; returns the file path when complete |
 | `download_cancel` | Stop a download, keeping the partial file for resuming |
@@ -131,7 +141,7 @@ says so when it returns both.
 
 - [x] Catalogue discovery over STAC
 - [x] Whole-product download as background jobs, resumable and size-verified
-- [ ] Selective download: individual bands and OLCI variables
+- [x] Selective download: individual bands and OLCI variables
 - [ ] Windowed reads: a bounding box out of a product without fetching the whole file
 
 ## Quotas
