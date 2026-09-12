@@ -8,7 +8,7 @@ from fastmcp import FastMCP
 
 from cdse_local_mcp import __version__
 from cdse_local_mcp.config import get_settings
-from cdse_local_mcp.tools import ToolDef, discovery
+from cdse_local_mcp.tools import ToolDef, discovery, downloads
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +34,7 @@ def build_server() -> FastMCP:
     """Create the server and register every tool."""
     mcp: FastMCP = FastMCP(name="cdse-local-mcp", version=__version__, instructions=INSTRUCTIONS)
 
-    definitions: list[ToolDef] = [*discovery.TOOLS]
+    definitions: list[ToolDef] = [*discovery.TOOLS, *downloads.TOOLS]
     for tool in definitions:
         mcp.tool(tool.fn, annotations=tool.annotations)
 
