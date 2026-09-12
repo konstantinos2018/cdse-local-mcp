@@ -63,10 +63,12 @@ long-lived.
 
 | Situation | Transport |
 |---|---|
-| Specific files inside a product, or >200 MB, and S3 keys configured | **S3**: resolve the product's `S3Path`, ranged parallel GETs from the `eodata` bucket |
-| No S3 keys configured | **OData node traversal**: `Products(<uuid>)/Nodes(<path>)/$value` |
-| Whole product, explicitly requested | **OData** `Products(<uuid>)/$value`, resumable via `Range` |
-| Quicklook / thumbnail | **OData** `Products(<uuid>)/Assets`, inline if under the size cap |
+| Anything that moves bytes | **S3**, header-signed SigV4 against the `eodata` bucket |
+| ~~OData `$value`~~ | **Unusable here.** Rejects Sentinel Hub tokens (`DAT-ZIP-609`) and needs a password-grant token, which this project does not support |
+| Quicklook / thumbnail | S3 object inside the product prefix, inline if under the size cap |
+
+Implemented and verified: S3 listing plus header-signed ranged GETs. Presigned URLs are
+refused by CDSE's gateway, so the signature goes in the headers.
 
 Exactly one `TokenProvider` exists, refreshing ahead of expiry behind an `asyncio.Lock`. No
 tool or client body mints a token inline. Long OData transfers re-authenticate on retry

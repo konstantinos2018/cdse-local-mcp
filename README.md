@@ -5,8 +5,8 @@ search the Sentinel catalogue, inspect products, and retrieve them to local disk
 
 It runs locally over stdio, so the data lands on your machine and stays there.
 
-> **Status: alpha.** Catalogue discovery and whole-product download work. Selective and
-> windowed downloads are next — see [Roadmap](#roadmap).
+> **Status: alpha.** Catalogue discovery and whole-product download work, verified against
+> the live API. Selective and windowed downloads are next — see [Roadmap](#roadmap).
 
 ## Why
 
@@ -35,6 +35,10 @@ to bytes on disk.
 told to ask you rather than pick one. Quietly returning the five least-cloudy scenes when you
 asked about a specific date is a wrong answer that looks right.
 
+**Products arrive unpacked.** CDSE stores a `.SAFE` as a tree of objects rather than a zip,
+so a download rebuilds that tree on disk — ready to open in QGIS or rasterio, no extraction
+step. A real Sentinel-2 L1C scene is 66 files and ~785 MiB.
+
 **Data moves through the filesystem, not the conversation.** Tool results carry paths, sizes
 and checksums. A Sentinel-2 band is ~150 MB and an assistant's context window is not a pipe
 for raster data.
@@ -58,15 +62,20 @@ uv sync            # or: pip install -e .
 **Catalogue search needs no credentials.** You can search, inspect products and browse
 collections immediately.
 
-Downloads need a free [Copernicus Data Space account](https://dataspace.copernicus.eu/):
+Downloads need **S3 access keys** from a free
+[Copernicus Data Space account](https://dataspace.copernicus.eu/):
 
 | Variable | For | Where |
 |---|---|---|
-| `CDSE_CLIENT_ID`, `CDSE_CLIENT_SECRET` | Downloading products | OAuth client from the Sentinel Hub dashboard |
-| `CDSE_S3_ACCESS_KEY`, `CDSE_S3_SECRET_KEY` | Faster transfers, windowed reads | [S3 keys manager](https://eodata-s3keysmanager.dataspace.copernicus.eu/) |
+| `CDSE_S3_ACCESS_KEY`, `CDSE_S3_SECRET_KEY` | All downloads | [S3 keys manager](https://eodata-s3keysmanager.dataspace.copernicus.eu/) |
 | `CDSE_DOWNLOAD_DIR` | Where files land | Defaults to `~/.cache/cdse-local-mcp` |
 
-Account passwords are never used or accepted — client credentials only.
+Account passwords are never used or accepted.
+
+**Why S3 rather than OAuth.** The OData download endpoint rejects tokens from a Sentinel Hub
+OAuth client (`DAT-ZIP-609`, "Token audience not allowed") and accepts only a password-grant
+token. S3 keys avoid passwords entirely, are independently revocable, and are CDSE's
+documented high-performance path.
 
 ## Connect an MCP client
 
@@ -77,8 +86,8 @@ Account passwords are never used or accepted — client credentials only.
       "command": "uv",
       "args": ["--directory", "/path/to/cdse-local-mcp", "run", "cdse-local-mcp"],
       "env": {
-        "CDSE_CLIENT_ID": "...",
-        "CDSE_CLIENT_SECRET": "..."
+        "CDSE_S3_ACCESS_KEY": "...",
+        "CDSE_S3_SECRET_KEY": "..."
       }
     }
   }
@@ -98,7 +107,7 @@ npx @modelcontextprotocol/inspector uv run cdse-local-mcp
 | `search_products` | Find products by collection, area and date, newest first |
 | `list_product_assets` | List the individual files inside a product, with friendly names |
 | `list_collections` | Browse the 419 CDSE collections |
-| `download_product_archive` | Fetch a whole product to disk, as a background job |
+| `download_product` | Fetch a whole product to disk, as a background job |
 | `download_status` | Check progress; returns the file path when complete |
 | `download_cancel` | Stop a download, keeping the partial file for resuming |
 
@@ -121,7 +130,7 @@ says so when it returns both.
 ## Roadmap
 
 - [x] Catalogue discovery over STAC
-- [x] Whole-product download as background jobs, resumable and checksum-verified
+- [x] Whole-product download as background jobs, resumable and size-verified
 - [ ] Selective download: individual bands and OLCI variables
 - [ ] Windowed reads: a bounding box out of a product without fetching the whole file
 

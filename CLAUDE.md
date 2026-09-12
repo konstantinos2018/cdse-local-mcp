@@ -52,9 +52,9 @@ src/cdse_local_mcp/
 ├── config.py            # pydantic-settings: credentials, download root, caps
 ├── auth.py              # TokenProvider: one per process, client credentials, refresh-ahead
 ├── errors.py            # typed errors -> structured tool results
-├── clients/             # stac.py · odata.py · s3.py*   (HTTP/S3 only, no MCP imports)
+├── clients/             # stac.py · odata.py · s3.py   (HTTP/S3 only, no MCP imports)
 ├── domain/              # models.py · collections.py · geometry.py · timerange.py
-├── transfer/            # budget.py · paths.py · download.py · jobs.py · window.py*
+├── transfer/            # budget.py · paths.py · download.py · bulk.py · jobs.py · window.py*
 └── tools/               # discovery.py · downloads.py  (thin adapters)
 tests/
 ├── unit/                # mocked; the default suite
@@ -63,8 +63,9 @@ tests/
 ```
 
 `*` not built yet. **Current state**: discovery and whole-product download are complete —
-`search_products`, `list_product_assets`, `list_collections`, `download_product_archive`,
-`download_status`, `download_cancel`, with 134 unit tests and 4 live tests. Next milestones,
+`search_products`, `list_product_assets`, `list_collections`, `download_product`,
+`download_status`, `download_cancel`. Verified end to end on 2026-09-13: a real Sentinel-2
+L1C product, 66 files and 785 MiB, rebuilt on disk with an exact size match. Next milestones,
 in order: selective asset download (bands, OLCI variables), then windowed reads.
 
 **The layering rule.** `tools/` modules are thin adapters: validate input, call a client or
@@ -107,8 +108,8 @@ lines.
 Tools are a user interface whose user is a language model. Design accordingly.
 
 - **Names** are `verb_noun`, lowercase, stable: `search_products`, `get_product`,
-  `list_product_assets`, `download_assets`, `download_window`,
-  `download_product_archive`, `download_status`, `download_cancel`.
+  `list_product_assets`, `download_product`, `download_assets`, `download_window`,
+  `download_status`, `download_cancel`.
 - **The docstring is the contract.** Say what the tool does, when to prefer it over a
   sibling, what the units and CRS are, and what it costs (quota, bytes, time). Write it for a
   model that cannot see the implementation.
@@ -236,6 +237,12 @@ These cost real debugging time. [docs/cdse-apis.md](docs/cdse-apis.md) has the f
   credentials. `ODataClient` follows them by hand, re-attaching the token each hop.
 - **`Online` absent means online.** Only archived products carry the flag, so treat a missing
   value as available rather than defaulting to offline.
+- **S3 refuses presigned URLs.** Query-string SigV4 returns `403 InvalidAccessKeyId` on keys
+  that list and read fine with header auth, so `S3Client` signs request headers with
+  `S3SigV4Auth`. Do not "simplify" it back to `generate_presigned_url`.
+- **Products are stored unpacked on S3.** A `.SAFE` is a prefix of hundreds of objects, not a
+  zip, so a whole-product download rebuilds a directory tree. Object keys come from a remote
+  listing, so every one goes through the path sandbox.
 - **Rate limiting arrives far sooner than the documented 2000/minute.** A handful of
   requests in quick succession can return 429 — running the four live tests together did it.
   `StacClient` retries 429 and 5xx three times with backoff, honouring `Retry-After`, and
