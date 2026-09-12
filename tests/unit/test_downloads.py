@@ -16,7 +16,13 @@ from cdse_local_mcp.clients.odata import ProductInfo
 from cdse_local_mcp.clients.s3 import S3Object, split_s3_path
 from cdse_local_mcp.config import get_settings
 from cdse_local_mcp.domain.models import JobState
-from cdse_local_mcp.errors import AuthRequired, BudgetExceeded, NotFound, OfflineProduct
+from cdse_local_mcp.errors import (
+    AuthRequired,
+    BudgetExceeded,
+    InvalidRequest,
+    NotFound,
+    OfflineProduct,
+)
 from cdse_local_mcp.tools import downloads
 from cdse_local_mcp.transfer.budget import reset_budget
 from cdse_local_mcp.transfer.jobs import JOURNAL_NAME, JobRegistry, reset_registry
@@ -376,3 +382,128 @@ def test_sizes_are_reported_in_the_units_they_are_computed_in() -> None:
     assert human_bytes(25 * 1024**3) == "25.0 GiB"
     assert human_bytes(1536) == "1.5 KiB"
     assert human_bytes(512) == "512 B"
+
+
+# --- selective download ------------------------------------------------------------------
+
+STAC_ITEM = {
+    "id": PRODUCT_ID,
+    "collection": "sentinel-2-l1c",
+    "properties": {"datetime": "2024-07-16T09:15:59Z", "eo:cloud_cover": 0.0},
+    "assets": {
+        "B02": {"href": f"s3://eodata/{S3_PREFIX}/GRANULE/L1C_T34SEH/IMG_DATA/T34SEH_B02.jp2"},
+        "B04": {"href": f"s3://eodata/{S3_PREFIX}/GRANULE/L1C_T34SEH/IMG_DATA/T34SEH_B04.jp2"},
+        "Product": {
+            "href": f"https://download.dataspace.copernicus.eu/odata/v1/Products({UUID})/$value"
+        },
+        "thumbnail": {"href": "https://datahub.creodias.eu/odata/v1/Assets(x)/$value"},
+    },
+}
+
+
+class FakeStac:
+    """Serves one STAC item, the way the catalogue does."""
+
+    def __init__(self, item: dict[str, object] | None = None) -> None:
+        self.item = item if item is not None else STAC_ITEM
+
+    async def get_item(self, *, collection: str, item_id: str) -> dict[str, object]:
+        return self.item
+
+
+def _wire_selective(item: dict[str, object] | None = None) -> FakeS3Client:
+    from cdse_local_mcp.tools import discovery as disc
+
+    disc.set_client(FakeStac(item))  # type: ignore[arg-type]
+    return _wire()
+
+
+async def test_selective_download_fetches_only_the_named_bands() -> None:
+    s3 = _wire_selective()
+
+    started = await downloads.download_assets(
+        collection="sentinel-2-l1c", product_id=PRODUCT_ID, assets=["B04"]
+    )
+    await _run_to_completion(started.jobs[0].job_id)
+
+    assert len(s3.objects_streamed) == 1
+    assert s3.objects_streamed[0].endswith("T34SEH_B04.jp2")
+    # and it says what was saved by not taking the whole product
+    assert any("instead of" in n for n in started.notes)
+
+
+async def test_friendly_names_resolve_to_asset_keys() -> None:
+    """Asset keys are inconsistent across collections; making the model guess them is a trap."""
+    s3 = _wire_selective()
+
+    started = await downloads.download_assets(
+        collection="sentinel-2-l1c", product_id=PRODUCT_ID, assets=["red_10m", "b02"]
+    )
+    await _run_to_completion(started.jobs[0].job_id)
+
+    fetched = {key.rsplit("_", 1)[-1] for key in s3.objects_streamed}
+    assert fetched == {"B04.jp2", "B02.jp2"}
+
+
+async def test_an_unknown_asset_lists_what_is_available() -> None:
+    _wire_selective()
+
+    with pytest.raises(InvalidRequest) as exc:
+        await downloads.download_assets(
+            collection="sentinel-2-l1c", product_id=PRODUCT_ID, assets=["B99"]
+        )
+
+    assert "B02" in (exc.value.hint or "")
+    assert "B04" in (exc.value.hint or "")
+
+
+async def test_https_only_assets_are_not_offered_for_s3_download() -> None:
+    """The thumbnail and the OData archive are not objects in the bucket."""
+    _wire_selective()
+
+    with pytest.raises(InvalidRequest) as exc:
+        await downloads.download_assets(
+            collection="sentinel-2-l1c", product_id=PRODUCT_ID, assets=["thumbnail"]
+        )
+    assert "thumbnail" not in (exc.value.hint or "")
+
+
+async def test_requesting_nothing_is_rejected() -> None:
+    _wire_selective()
+
+    with pytest.raises(InvalidRequest, match="No assets"):
+        await downloads.download_assets(
+            collection="sentinel-2-l1c", product_id=PRODUCT_ID, assets=[]
+        )
+
+
+async def test_selective_files_land_in_the_product_tree_so_they_can_be_topped_up() -> None:
+    s3 = _wire_selective()
+
+    first = await downloads.download_assets(
+        collection="sentinel-2-l1c", product_id=PRODUCT_ID, assets=["B04"]
+    )
+    await _run_to_completion(first.jobs[0].job_id)
+    root = Path((await downloads.download_status(job_id=first.jobs[0].job_id)).jobs[0].path or "")
+    assert (root / "GRANULE/L1C_T34SEH/IMG_DATA/T34SEH_B04.jp2").exists()
+
+    # Asking again for the same band plus another must not re-fetch the first.
+    second = await downloads.download_assets(
+        collection="sentinel-2-l1c", product_id=PRODUCT_ID, assets=["B04", "B02"]
+    )
+    await _run_to_completion(second.jobs[0].job_id)
+
+    b04_fetches = [k for k in s3.objects_streamed if k.endswith("B04.jp2")]
+    assert len(b04_fetches) == 1, "the already-present band was downloaded again"
+    assert (root / "GRANULE/L1C_T34SEH/IMG_DATA/T34SEH_B02.jp2").exists()
+
+
+async def test_selective_download_needs_s3_keys_too(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("CDSE_S3_ACCESS_KEY", raising=False)
+    get_settings.cache_clear()
+    _wire_selective()
+
+    with pytest.raises(AuthRequired):
+        await downloads.download_assets(
+            collection="sentinel-2-l1c", product_id=PRODUCT_ID, assets=["B04"]
+        )

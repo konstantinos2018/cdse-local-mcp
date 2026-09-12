@@ -7,7 +7,12 @@ import pytest
 from cdse_local_mcp.server import build_server
 
 DISCOVERY_TOOLS = {"search_products", "list_product_assets", "list_collections"}
-DOWNLOAD_TOOLS = {"download_product", "download_status", "download_cancel"}
+DOWNLOAD_TOOLS = {
+    "download_product",
+    "download_assets",
+    "download_status",
+    "download_cancel",
+}
 EXPECTED_TOOLS = DISCOVERY_TOOLS | DOWNLOAD_TOOLS
 
 
@@ -61,7 +66,7 @@ async def test_server_instructions_state_the_interaction_rules() -> None:
 async def test_download_tools_declare_that_they_write() -> None:
     """A client must be able to tell which tools touch the filesystem."""
     mcp = build_server()
-    for name in ("download_product", "download_cancel"):
+    for name in ("download_product", "download_assets", "download_cancel"):
         annotations = (await mcp.get_tool(name)).annotations
         assert annotations is not None
         assert annotations.read_only_hint is False
@@ -82,3 +87,11 @@ async def test_the_download_tool_warns_about_its_cost_and_what_it_produces() -> 
     # The S3 transport yields an unpacked directory, which callers must not mistake for a zip.
     assert "directory" in description
     assert "S3 access keys" in description
+
+
+async def test_selective_download_is_steered_towards_and_explains_olci() -> None:
+    """The cheap tool must be the obviously preferable one, or the model reaches past it."""
+    description = (await build_server().get_tool("download_assets")).description or ""
+    assert "Almost always the right choice" in description
+    assert "geo-coordinates" in description  # OLCI is useless without it
+    assert "wqsf" in description
