@@ -1,0 +1,25 @@
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Never commit credentials or downloaded data.
+.env
+.env.*
+!.env.example
+downloads/
+*.SAFE/
+*.SEN3/
+*.jp2
+*.nc
+*.tif
+*.tiff
+*.zip

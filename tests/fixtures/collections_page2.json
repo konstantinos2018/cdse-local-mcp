@@ -1,0 +1,30 @@
+{
+ "collections": [
+  {
+   "id": "sentinel-2-l1c",
+   "title": "Sentinel-2 Level-1C"
+  },
+  {
+   "id": "sentinel-2-l2a",
+   "title": "Sentinel-2 Level-2A"
+  },
+  {
+   "id": "sentinel-3-olci-2-wfr-ntc",
+   "title": "Sentinel-3 OLCI Water Full Resolution (NTC)"
+  },
+  {
+   "id": "sentinel-1-grd",
+   "title": "Sentinel-1 Ground Range Detected (GRD)"
+  },
+  {
+   "id": "cop-dem-glo-30-dged-cog",
+   "title": "CopDEM COG (30 m)"
+  }
+ ],
+ "links": [
+  {
+   "rel": "self",
+   "href": "https://stac.dataspace.copernicus.eu/v1/collections"
+  }
+ ]
+}

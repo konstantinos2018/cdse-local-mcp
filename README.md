@@ -1,0 +1,151 @@
+# cdse-local-mcp
+
+An MCP server that gives AI assistants access to the [Copernicus Data Space Ecosystem](https://dataspace.copernicus.eu/):
+search the Sentinel catalogue, inspect products, and retrieve them to local disk.
+
+It runs locally over stdio, so the data lands on your machine and stays there.
+
+> **Status: alpha.** Catalogue discovery works and is tested against the live API. Download
+> tools are in progress — see [Roadmap](#roadmap).
+
+## Why
+
+Asking for Earth observation data is easy to say and tedious to do: find the right collection
+id, build a bounding box in the right axis order, filter the cloud cover, work out which of a
+product's 21 assets you actually need, and avoid pulling a gigabyte when 40 MB would do. This
+server puts that behind a conversation:
+
+> *"Find me a Sentinel-2 L1C scene over the Gulf of Patras in July 2024, under 20% cloud."*
+
+```
+3 products, area searched 21.3000,38.1000,21.9000,38.4000 (EPSG:4326 lon/lat)
+
+  S2A_MSIL1C_20240731T092031_..._T34SEH   cloud  6.8%   tile MGRS-34SEH   ~800 MB
+  S2B_MSIL1C_20240726T091559_..._T34SEH   cloud 16.4%   tile MGRS-34SEH   ~800 MB
+  S2A_MSIL1C_20240721T092031_..._T34SEH   cloud  2.5%   tile MGRS-34SEH   ~800 MB
+```
+
+## Design decisions worth knowing
+
+**Nothing downloads by accident.** Search returns candidates with size estimates; you choose;
+download tools accept only explicit product ids. There is no path from a place name straight
+to bytes on disk.
+
+**Cloud cover is never filtered silently.** If you did not state a threshold, the assistant is
+told to ask you rather than pick one. Quietly returning the five least-cloudy scenes when you
+asked about a specific date is a wrong answer that looks right.
+
+**Data moves through the filesystem, not the conversation.** Tool results carry paths, sizes
+and checksums. A Sentinel-2 band is ~150 MB and an assistant's context window is not a pipe
+for raster data.
+
+**Sentinel-3 is not Sentinel-2.** OLCI is swath data with per-pixel latitude/longitude and no
+map projection. The server tracks that distinction, because code that treats a swath as a grid
+produces plausible output located nowhere.
+
+## Install
+
+Requires Python 3.11+.
+
+```bash
+git clone https://github.com/konstantinos2018/cdse-local-mcp
+cd cdse-local-mcp
+uv sync            # or: pip install -e .
+```
+
+## Credentials
+
+**Catalogue search needs no credentials.** You can search, inspect products and browse
+collections immediately.
+
+Downloads need a free [Copernicus Data Space account](https://dataspace.copernicus.eu/):
+
+| Variable | For | Where |
+|---|---|---|
+| `CDSE_CLIENT_ID`, `CDSE_CLIENT_SECRET` | Downloading products | OAuth client from the Sentinel Hub dashboard |
+| `CDSE_S3_ACCESS_KEY`, `CDSE_S3_SECRET_KEY` | Faster transfers, windowed reads | [S3 keys manager](https://eodata-s3keysmanager.dataspace.copernicus.eu/) |
+| `CDSE_DOWNLOAD_DIR` | Where files land | Defaults to `~/.cache/cdse-local-mcp` |
+
+Account passwords are never used or accepted — client credentials only.
+
+## Connect an MCP client
+
+```json
+{
+  "mcpServers": {
+    "cdse": {
+      "command": "uv",
+      "args": ["--directory", "/path/to/cdse-local-mcp", "run", "cdse-local-mcp"],
+      "env": {
+        "CDSE_CLIENT_ID": "...",
+        "CDSE_CLIENT_SECRET": "..."
+      }
+    }
+  }
+}
+```
+
+Try it by hand with the MCP Inspector:
+
+```bash
+npx @modelcontextprotocol/inspector uv run cdse-local-mcp
+```
+
+## Tools
+
+| Tool | Does |
+|---|---|
+| `search_products` | Find products by collection, area and date, newest first |
+| `list_product_assets` | List the individual files inside a product, with friendly names |
+| `list_collections` | Browse the 419 CDSE collections |
+
+## Supported collections
+
+Any CDSE collection can be searched. Four have tuned support — band and variable
+vocabularies, usage guidance, recorded test fixtures:
+
+| Collection | |
+|---|---|
+| `sentinel-2-l1c` | Top-of-atmosphere reflectance |
+| `sentinel-2-l2a` | Surface reflectance |
+| `sentinel-3-olci-2-wfr-ntc` | Water quality: chlorophyll, suspended matter, KD490 transparency |
+| `sentinel-3-olci-1-efr-ntc` | OLCI Level-1B radiances |
+
+For water quality, note that `chl_nn` (neural net) is the appropriate chlorophyll product in
+coastal and turbid water, while `chl_oc4me` is calibrated for clear open ocean. The server
+says so when it returns both.
+
+## Roadmap
+
+- [x] Catalogue discovery over STAC
+- [ ] Whole-product download (Sentinel-2 first), as background jobs with progress
+- [ ] Selective download: individual bands and OLCI variables
+- [ ] Windowed reads: a bounding box out of a product without fetching the whole file
+
+## Quotas
+
+CDSE's free tier allows 10 000 catalogue requests and roughly 12 TB of transfer per month,
+with 4 concurrent connections. The server caps transfers per call and per session so an
+assistant cannot spend your month in a loop. Full numbers: [docs/cdse-apis.md](docs/cdse-apis.md).
+
+## Development
+
+```bash
+uv sync --all-extras
+uv run pytest              # unit tests, no network
+uv run pytest -m live      # against the real CDSE API; no credentials needed
+uv run ruff check . && uv run mypy
+```
+
+Design documents:
+[CLAUDE.md](CLAUDE.md) for working conventions,
+[docs/cdse-apis.md](docs/cdse-apis.md) for verified endpoints and quotas,
+[docs/collections.md](docs/collections.md) for per-collection detail,
+[docs/downloads.md](docs/downloads.md) for the download architecture.
+
+## License
+
+Apache-2.0. Copyright 2026 Kostas Vlachos.
+
+Contains modified Copernicus data. Copernicus Sentinel data are provided free of charge under
+the [Copernicus data policy](https://dataspace.copernicus.eu/terms-and-conditions).

@@ -1,0 +1,54 @@
+{
+ "type": "Feature",
+ "id": "S3A_OL_2_WFR____20240731T085738_20240731T090038_20240801T153407_0179_115_164_2340_MAR_O_NT_003",
+ "collection": "sentinel-3-olci-2-wfr-ntc",
+ "properties": {
+  "datetime": "2024-07-31T08:59:07.639785+00:00",
+  "platform": "sentinel-3a",
+  "product:type": "OL_2_WFR___",
+  "eo:cloud_cover": 2.0,
+  "processing:level": "L2"
+ },
+ "assets": {
+  "chl-Nn": {
+   "href": "s3://eodata/Sentinel-3/OLCI/OL_2_WFR___/2024/07/31/S3A_OL_2_WFR____20240731T085738_20240731T090038_20240801T153407_0179_115_164_2340_MAR_O_NT_003.SEN3/chl_nn.nc",
+   "type": "application/netcdf"
+  },
+  "chl-Oc4me": {
+   "href": "s3://eodata/Sentinel-3/OLCI/OL_2_WFR___/2024/07/31/S3A_OL_2_WFR____20240731T085738_20240731T090038_20240801T153407_0179_115_164_2340_MAR_O_NT_003.SEN3/chl_oc4me.nc",
+   "type": "application/netcdf"
+  },
+  "tsm-Nn": {
+   "href": "s3://eodata/Sentinel-3/OLCI/OL_2_WFR___/2024/07/31/S3A_OL_2_WFR____20240731T085738_20240731T090038_20240801T153407_0179_115_164_2340_MAR_O_NT_003.SEN3/tsm_nn.nc",
+   "type": "application/netcdf"
+  },
+  "geo-coordinates": {
+   "href": "s3://eodata/Sentinel-3/OLCI/OL_2_WFR___/2024/07/31/S3A_OL_2_WFR____20240731T085738_20240731T090038_20240801T153407_0179_115_164_2340_MAR_O_NT_003.SEN3/geo_coordinates.nc",
+   "type": "application/netcdf"
+  },
+  "wqsf": {
+   "href": "s3://eodata/Sentinel-3/OLCI/OL_2_WFR___/2024/07/31/S3A_OL_2_WFR____20240731T085738_20240731T090038_20240801T153407_0179_115_164_2340_MAR_O_NT_003.SEN3/wqsf.nc",
+   "type": "application/netcdf"
+  },
+  "chlor-a": {
+   "href": null,
+   "type": "application/netcdf"
+  },
+  "fluo": {
+   "href": null,
+   "type": "application/netcdf"
+  },
+  "iop-Lsd": {
+   "href": null,
+   "type": "application/netcdf"
+  },
+  "product": {
+   "href": "https://download.dataspace.copernicus.eu/odata/v1/Products(6003f19d-cbe9-4d68-98ba-46c3a212e9d0)/$value",
+   "type": "application/zip"
+  },
+  "thumbnail": {
+   "href": "https://datahub.creodias.eu/odata/v1/Assets(b014525f-653d-416f-aeb7-71ee958f5556)/$value",
+   "type": "image/jpeg"
+  }
+ }
+}

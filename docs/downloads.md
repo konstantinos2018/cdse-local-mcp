@@ -134,13 +134,21 @@ stack, no system GDAL needed: `pip install rasterio` ships **GDAL 3.12.4 with th
 
 ```python
 # transfer/window.py, in outline
-with rasterio.Env(AWS_S3_ENDPOINT="eodata.dataspace.copernicus.eu", AWS_HTTPS="YES",
-                  AWS_VIRTUAL_HOSTING="FALSE", GDAL_DISABLE_READDIR_ON_OPEN="YES"):
+with rasterio.Env(
+    AWS_S3_ENDPOINT="eodata.dataspace.copernicus.eu",
+    AWS_HTTPS="YES",
+    AWS_VIRTUAL_HOSTING="FALSE",
+    GDAL_DISABLE_READDIR_ON_OPEN="YES",
+):
     with rasterio.open("/vsis3/eodata/Sentinel-2/MSI/L1C/.../B04.jp2") as src:
         win = rasterio.windows.from_bounds(*bounds_in_src_crs, transform=src.transform)
-        data = src.read(1, window=win)          # only the intersecting tiles are fetched
-        profile = src.profile | {"driver": "GTiff", "height": ..., "width": ...,
-                                 "transform": src.window_transform(win)}
+        data = src.read(1, window=win)  # only the intersecting tiles are fetched
+        profile = src.profile | {
+            "driver": "GTiff",
+            "height": ...,
+            "width": ...,
+            "transform": src.window_transform(win),
+        }
 ```
 
 Non-obvious requirements:

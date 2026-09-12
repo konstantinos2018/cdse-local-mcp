@@ -52,15 +52,19 @@ src/cdse_local_mcp/
 ├── config.py            # pydantic-settings: credentials, download root, caps
 ├── auth.py              # TokenProvider: client credentials, refresh, lock
 ├── errors.py            # typed errors -> structured tool results
-├── clients/             # stac.py · odata.py · s3.py    (HTTP/S3 only, no MCP imports)
-├── domain/              # models.py · collections.py · geometry.py
-├── transfer/            # budget.py · jobs.py · download.py · window.py
-└── tools/               # discovery.py · products.py · downloads.py   (thin adapters)
+├── clients/             # stac.py · odata.py* · s3.py*   (HTTP/S3 only, no MCP imports)
+├── domain/              # models.py · collections.py · geometry.py · timerange.py
+├── transfer/*           # budget.py · jobs.py · download.py · window.py
+└── tools/               # discovery.py · downloads.py*  (thin adapters)
 tests/
 ├── unit/                # mocked; the default suite
-├── live/                # @pytest.mark.live, hits real CDSE
-└── fixtures/            # recorded JSON responses
+├── live/                # @pytest.mark.live, hits real CDSE (needs no credentials)
+└── fixtures/            # trimmed captures of real responses
 ```
+
+`*` not built yet. **Current state**: discovery is complete and tested — `search_products`,
+`list_product_assets`, `list_collections`, with 62 unit tests and 4 live tests. Downloads are
+the next milestone; build Sentinel-2 whole-product first, per the order below.
 
 **The layering rule.** `tools/` modules are thin adapters: validate input, call a client or
 transfer function, shape the result. All CDSE knowledge lives in `clients/` and `domain/` and
@@ -115,8 +119,10 @@ Tools are a user interface whose user is a language model. Design accordingly.
 - **Errors are structured and actionable.** Raise the typed errors in `errors.py`; a tool
   result should tell the model what to do differently (narrow the date range, request a
   smaller asset, order the offline product), never surface a traceback.
-- **Annotate side effects.** Read-only tools get `readOnlyHint=True`. Download tools get
-  `readOnlyHint=False`, `destructiveHint=False`, `idempotentHint=True`, `openWorldHint=True`.
+- **Annotate side effects** using the shared dicts in `tools/__init__.py` (`READ_ONLY`,
+  `DOWNLOADS`) rather than writing them per tool. Use the **snake_case** field names
+  (`read_only_hint`); the MCP wire format uses the camelCase aliases and the SDK converts.
+  FastMCP is pinned to 4.x — its API differs from 2.x, so check before upgrading.
 
 ### Two required interaction rules
 
@@ -215,6 +221,15 @@ These cost real debugging time. [docs/cdse-apis.md](docs/cdse-apis.md) has the f
   before enqueueing a transfer.
 - **Quota is finite and shared.** 10 000 OData requests/month, 12 TB per rolling 30 days,
   4 concurrent connections. Cache aggressively; never poll in a tight loop.
+- **Rate limiting arrives far sooner than the documented 2000/minute.** A handful of
+  requests in quick succession can return 429 — running the four live tests together did it.
+  `StacClient` retries 429 and 5xx three times with backoff, honouring `Retry-After`, and
+  retries nothing else: repeating a 400 only spends quota. Keep that behaviour.
+- **A lat/lon swap is usually undetectable.** `[38.1, 21.3, 38.4, 21.9]` is a perfectly valid
+  box in Iraq, not a malformed Gulf of Patras. Validation catches it only when a longitude
+  exceeds 90 in a latitude slot. This is why every search echoes `area_searched` back — that
+  echo is the actual safeguard, so never drop it. `tests/unit/test_geometry.py` pins the
+  limitation so nobody later claims swaps are caught.
 
 ## Testing
 

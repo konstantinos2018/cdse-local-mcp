@@ -1,0 +1,94 @@
+{
+ "type": "FeatureCollection",
+ "numberReturned": 2,
+ "features": [
+  {
+   "type": "Feature",
+   "id": "S2A_MSIL1C_20240731T092031_N0511_R093_T34SEH_20240731T112239",
+   "collection": "sentinel-2-l1c",
+   "properties": {
+    "datetime": "2024-07-31T09:20:31.024000Z",
+    "platform": "sentinel-2a",
+    "grid:code": "MGRS-34SEH",
+    "product:type": "S2MSI1C",
+    "eo:cloud_cover": 6.8,
+    "processing:level": "L1"
+   },
+   "assets": {
+    "B02": {
+     "href": "s3://eodata/Sentinel-2/MSI/L1C/2024/07/31/S2A_MSIL1C_20240731T092031_N0511_R093_T34SEH_20240731T112239.SAFE/GRANULE/L1C_T34SEH_A047566_20240731T092030/IMG_DATA/T34SEH_20240731T092031_B02.jp2",
+     "type": "image/jp2"
+    },
+    "B04": {
+     "href": "s3://eodata/Sentinel-2/MSI/L1C/2024/07/31/S2A_MSIL1C_20240731T092031_N0511_R093_T34SEH_20240731T112239.SAFE/GRANULE/L1C_T34SEH_A047566_20240731T092030/IMG_DATA/T34SEH_20240731T092031_B04.jp2",
+     "type": "image/jp2"
+    },
+    "TCI": {
+     "href": "s3://eodata/Sentinel-2/MSI/L1C/2024/07/31/S2A_MSIL1C_20240731T092031_N0511_R093_T34SEH_20240731T112239.SAFE/GRANULE/L1C_T34SEH_A047566_20240731T092030/IMG_DATA/T34SEH_20240731T092031_TCI.jp2",
+     "type": "image/jp2"
+    },
+    "Product": {
+     "href": "https://download.dataspace.copernicus.eu/odata/v1/Products(afbeb0a0-2d83-4a94-9eed-df076ec183d6)/$value",
+     "type": "application/zip"
+    },
+    "thumbnail": {
+     "href": "https://datahub.creodias.eu/odata/v1/Assets(0f55fc92-bdad-4b2a-affd-15796ac5d80a)/$value",
+     "type": "image/jpeg"
+    }
+   }
+  },
+  {
+   "type": "Feature",
+   "id": "S2B_MSIL1C_20240726T091559_N0511_R093_T34SEH_20240726T112439",
+   "collection": "sentinel-2-l1c",
+   "properties": {
+    "datetime": "2024-07-26T09:15:59.024000Z",
+    "platform": "sentinel-2b",
+    "grid:code": "MGRS-34SEH",
+    "product:type": "S2MSI1C",
+    "eo:cloud_cover": 16.4,
+    "processing:level": "L1"
+   },
+   "assets": {
+    "B02": {
+     "href": "s3://eodata/Sentinel-2/MSI/L1C/2024/07/26/S2B_MSIL1C_20240726T091559_N0511_R093_T34SEH_20240726T112439.SAFE/GRANULE/L1C_T34SEH_A038586_20240726T092926/IMG_DATA/T34SEH_20240726T091559_B02.jp2",
+     "type": "image/jp2"
+    },
+    "B04": {
+     "href": "s3://eodata/Sentinel-2/MSI/L1C/2024/07/26/S2B_MSIL1C_20240726T091559_N0511_R093_T34SEH_20240726T112439.SAFE/GRANULE/L1C_T34SEH_A038586_20240726T092926/IMG_DATA/T34SEH_20240726T091559_B04.jp2",
+     "type": "image/jp2"
+    },
+    "TCI": {
+     "href": "s3://eodata/Sentinel-2/MSI/L1C/2024/07/26/S2B_MSIL1C_20240726T091559_N0511_R093_T34SEH_20240726T112439.SAFE/GRANULE/L1C_T34SEH_A038586_20240726T092926/IMG_DATA/T34SEH_20240726T091559_TCI.jp2",
+     "type": "image/jp2"
+    },
+    "Product": {
+     "href": "https://download.dataspace.copernicus.eu/odata/v1/Products(97c582d0-9a32-4d14-8a4d-56aff924bde5)/$value",
+     "type": "application/zip"
+    },
+    "thumbnail": {
+     "href": "https://datahub.creodias.eu/odata/v1/Assets(4ab09edd-3714-44b7-b4a6-e1dff2c1b0b5)/$value",
+     "type": "image/jpeg"
+    }
+   }
+  }
+ ],
+ "links": [
+  {
+   "rel": "self",
+   "href": "https://stac.dataspace.copernicus.eu/v1/search"
+  },
+  {
+   "rel": "next",
+   "method": "POST",
+   "href": "https://stac.dataspace.copernicus.eu/v1/search",
+   "body": {
+    "collections": [
+     "sentinel-2-l1c"
+    ],
+    "limit": 2,
+    "token": "next:sentinel-2-l1c:S2B_MSIL1C_20240726T091559_N0511_R093_T34SEH_20240726T112439"
+   }
+  }
+ ]
+}

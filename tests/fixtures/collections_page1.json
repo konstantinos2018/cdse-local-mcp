@@ -1,0 +1,22 @@
+{
+ "collections": [
+  {
+   "id": "ccm-optical",
+   "title": "Copernicus Contributing Missions Optical"
+  },
+  {
+   "id": "ccm-sar",
+   "title": "Copernicus Contributing Missions SAR"
+  },
+  {
+   "id": "clms_ba_global_300m_daily_v3_cog",
+   "title": "CLMS Burnt Area (BA) Global 300m daily V3 (COG)"
+  }
+ ],
+ "links": [
+  {
+   "rel": "next",
+   "href": "https://stac.dataspace.copernicus.eu/v1/collections?limit=200&offset=200"
+  }
+ ]
+}
