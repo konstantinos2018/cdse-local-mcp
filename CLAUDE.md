@@ -118,6 +118,31 @@ Tools are a user interface whose user is a language model. Design accordingly.
 - **Annotate side effects.** Read-only tools get `readOnlyHint=True`. Download tools get
   `readOnlyHint=False`, `destructiveHint=False`, `idempotentHint=True`, `openWorldHint=True`.
 
+### Two required interaction rules
+
+These are explicit user decisions, not defaults to be tuned away.
+
+**1. Never filter on cloud cover silently.** `max_cloud_cover` is `Optional[float]` with **no
+default**. If the user stated a threshold, apply it. If they did not, do not invent one and do
+not quietly return everything as though the question never arose — the tool description
+instructs the model to **ask the user for a threshold** before searching an optical
+collection. Returning the 5 least-cloudy scenes when the user wanted a specific date is a
+silent wrong answer. Collections without `eo:cloud_cover` (Sentinel-1, and OLCI, which uses
+WQSF flags instead) must reject the parameter with a clear message rather than ignoring it.
+
+**2. Search, present, confirm, then download.** No tool downloads as a side effect of
+searching, and no single call goes from a place name to bytes on disk. The flow is:
+
+1. `search_products` returns a compact candidate list — id, datetime, cloud cover, tile/orbit,
+   **estimated download size**, and whether the product is online.
+2. The model presents that list and the user picks.
+3. `download_*` is called with explicit product ids taken from that list.
+
+Download tools therefore accept only explicit identifiers — never a search query, never
+"the best match", never a whole result set. The size estimate exists so the user is
+confirming against a real number. The byte budget in `transfer/budget.py` is the backstop for
+when this flow is bypassed, not a substitute for it.
+
 ## Auth
 
 Client-credentials flow only. **No account password is ever accepted or stored** — that was a
@@ -222,29 +247,35 @@ These cost real debugging time. [docs/cdse-apis.md](docs/cdse-apis.md) has the f
 
 ## First-class collections
 
-All 419 CDSE collections work generically — anything in `/collections` is searchable. A small
-set is **first-class**, meaning it gets tuned defaults, enum-constrained band parameters,
-recorded test fixtures and worked examples in the README. Listed in
-`domain/collections.py`:
+All 419 CDSE collections work generically — anything in `/collections` is searchable. Four
+are **first-class**: tuned vocabularies, recorded fixtures, worked examples. Specifics in
+[docs/collections.md](docs/collections.md); vocabularies in `domain/collections.py`.
 
-| Collection | Why first-class |
+| Collection | Notes |
 |---|---|
-| `sentinel-2-l1c` | Primary target: band enums `B01`–`B12`, `B8A`, `TCI`; cloud-cover default filter; windowed-read support |
-| `sentinel-2-l2a` | Same treatment; note the different `.SAFE` internal layout (`R10m`/`R20m`/`R60m` subdirs) |
-| `sentinel-1-grd` | SAR: no `eo:cloud_cover`, different polarisation/orbit parameters |
-| `cop-dem-glo-30-dged-cog` | Already COG, so the cheapest windowed-read path and a good test case |
+| `sentinel-2-l1c`, `sentinel-2-l2a` | **Build these first**, full-product download as the first working path. Gridded UTM JP2s, band enums, `eo:cloud_cover` |
+| `sentinel-3-olci-2-wfr-*` | Water quality: chlorophyll, TSM, KD490, ADG443, plus per-pixel lat/lon. Swath NetCDF |
+| `sentinel-3-olci-1-efr-*` | OLCI L1B top-of-atmosphere radiances. Swath NetCDF |
 
-Adding a collection to this list means: fixtures recorded, band/parameter vocabulary encoded,
-and at least one end-to-end test. Do not expand it casually — each entry is maintenance.
-Everything else is reachable through the generic path without tuning.
+**Order of work**: Sentinel-2 discovery → Sentinel-2 full-product download → Sentinel-2
+selective/band download → OLCI discovery → OLCI variable subsetting.
+
+**Sentinel-3 breaks the Sentinel-2 mental model.** OLCI is swath data with a per-pixel
+lat/lon array and no CRS or affine transform, stored as one NetCDF per variable. Gridded-raster
+code applied to it fails *silently*, producing plausible output located nowhere. Read
+[docs/collections.md](docs/collections.md) before writing any OLCI code.
+
+Adding a collection here means fixtures recorded, vocabulary encoded, and one end-to-end
+test. Do not expand the list casually — each entry is maintenance.
 
 ## Open decisions
 
 Ask before assuming. Once decided they are recorded above and this section shrinks — it is
 the list of things a session must not guess at.
 
-- Confirm the first-class collection list above matches actual use
-- Confirm the byte-budget defaults (`CDSE_MAX_CALL_BYTES` 5 GiB, `CDSE_MAX_SESSION_BYTES`
-  25 GiB)
-- CI: mocked-only on every push is settled; whether to add a weekly scheduled live smoke
-  test against real CDSE is not
+- **Deferred:** CI. Mocked-only on push is the intended baseline and a scheduled live smoke
+  test is a later question. No CI configuration is written yet — do not add workflows
+  unprompted.
+- Whether OLCI variable subsets are emitted as CSV, Parquet or NetCDF by default
+- Whether OLCI chlorophyll and TSM are log10-scaled must be confirmed against a real file's
+  CF attributes, not assumed — see the flagged item in [docs/collections.md](docs/collections.md)

@@ -118,7 +118,7 @@ the three preserves SAFE structure.
 |---|---|---|---|---|
 | **1. Whole product** | `download_product_archive` | `Products(<uuid>)/$value`, or the STAC `Product` asset | ~800 MB (S2 L1C), up to 8 GB (S1 GRD) | `.zip` → valid `.SAFE` |
 | **2. Selected files** | `download_assets` | S3 GET of individual `s3://eodata/…` band objects, or OData `Nodes(<path>)/$value` | ~100–180 MB per 10 m band | Individual `.jp2` / `.xml` files |
-| **3. Spatial window** | `download_window` | **Windowed read**: GDAL/rasterio reads only the JP2 tiles intersecting the bbox over `/vsis3` | ~0.5–5 MB for a 5×5 km crop | **GeoTIFF** (optionally COG) |
+| **3. Spatial window** | `download_window` | **Gridded (S2)**: GDAL/rasterio reads only the JP2 tiles intersecting the bbox over `/vsis3`. **Swath (OLCI)**: mask by per-pixel lat/lon, slice the variable arrays | ~0.5–5 MB for a 5×5 km crop | **GeoTIFF** (S2) or **CSV/Parquet table** (OLCI) |
 
 **Tier 3 is the important one, and it comes with an honest caveat.** A `.SAFE` product cannot
 be spatially subset and remain a valid `.SAFE` — the format is an archive with fixed
@@ -160,6 +160,30 @@ Non-obvious requirements:
   `IMG_DATA/` directly. Resolve paths from the STAC asset hrefs, never by string-building.
 
 Tier 3 needs S3 credentials. Without them, fall back to tier 2 and say so.
+
+### Tier 3 for swath data (Sentinel-3 OLCI)
+
+Everything above assumes a gridded raster with an affine transform. **OLCI has neither.** It
+is swath data with a per-pixel lat/lon array in `geo_coordinates.nc`, so windowed reads work
+by a different mechanism and produce a different output:
+
+1. Read `latitude` and `longitude` from `geo_coordinates.nc`.
+2. Build a boolean mask for the requested bbox.
+3. Take the bounding row/column slice of that mask, and slice every requested variable array
+   identically.
+4. Apply `scale_factor` / `add_offset` / `_FillValue` from each variable's own CF attributes,
+   and apply the WQSF quality flags.
+5. Emit a tidy table — one row per pixel: `latitude`, `longitude`, then each variable with its
+   units — as CSV or Parquet.
+
+A GeoTIFF would require resampling the swath onto a regular grid, which is an analysis choice
+with real consequences for water-quality values. The server does not make it silently; if a
+gridded product is wanted, it is an explicit, separately parameterised request.
+
+The cheap win for OLCI is tier 2, not tier 3: fetching `geo_coordinates.nc` plus three or
+four variable files plus `wqsf.nc` is tens of MB against a ~700 MB `.SEN3`.
+
+See [collections.md](collections.md) for the variable map and the scaling and flag rules.
 
 ### Alternative considered
 
