@@ -7,6 +7,7 @@ It runs locally over stdio, so the data lands on your machine and stays there.
 
 > **Status: alpha.** Discovery, whole-product, selective and windowed downloads work for
 > Sentinel-2, verified against the live API. OLCI windowing is next — see [Roadmap](#roadmap).
+> Install straight from GitHub with `uvx`; see [Get started](#get-started).
 
 ## Why
 
@@ -66,57 +67,42 @@ for raster data.
 map projection. The server tracks that distinction, because code that treats a swath as a grid
 produces plausible output located nowhere.
 
-## Install
+## Get started
 
-Requires Python 3.11+.
+You need two things:
 
-```bash
-git clone https://github.com/konstantinos2018/cdse-local-mcp
-cd cdse-local-mcp
-uv sync            # or: pip install -e .
-```
+- **[uv](https://docs.astral.sh/uv/getting-started/installation/)**, which fetches and runs
+  the server straight from GitHub. There is nothing to clone.
+- **CDSE S3 access keys**, but only for downloads. Search works without them. See
+  [Configuration](#configuration).
 
-## Credentials
+Two details matter, and both fail quietly when wrong:
 
-**Catalogue search needs no credentials.** You can search, inspect products and browse
-collections immediately.
+- **Use absolute paths.** Desktop apps don't load your shell profile, so `uvx` is usually not
+  on their `PATH`.
+- **Put settings in the client's configuration**, as shown below, not in a `.env` file. The
+  server would start and search, but every download would fail for lack of keys.
 
-Downloads need **S3 access keys** from a free
-[Copernicus Data Space account](https://dataspace.copernicus.eu/):
-
-| Variable | For | Where |
-|---|---|---|
-| `CDSE_S3_ACCESS_KEY`, `CDSE_S3_SECRET_KEY` | All downloads | [S3 keys manager](https://eodata-s3keysmanager.dataspace.copernicus.eu/) |
-| `CDSE_DOWNLOAD_DIR` | Where files land | Optional. Defaults to a `cdse-local-mcp` folder inside your Downloads folder |
-| `CDSE_MAX_CALL_BYTES`, `CDSE_MAX_SESSION_BYTES` | Transfer caps | Default 5 GiB per call, 25 GiB per session |
-
-These are environment variables, set in your MCP client's configuration — see below.
-
-Account passwords are never used or accepted.
-
-**Why S3 rather than OAuth.** The OData download endpoint rejects tokens from a Sentinel Hub
-OAuth client (`DAT-ZIP-609`, "Token audience not allowed") and accepts only a password-grant
-token. S3 keys avoid passwords entirely, are independently revocable, and are CDSE's
-documented high-performance path.
-
-## Connect an MCP client
-
-The server speaks MCP over stdio: a client launches it and passes settings as environment
-variables. Two details matter, and both fail quietly when wrong:
-
-- **Use absolute paths.** Desktop apps don't load your shell profile, so `uv`, `uvx` and
-  anything in `~/.local/bin` are usually not on their `PATH`. The command also runs without a
-  shell, so `$(which uv)` or `~` in `command` is taken literally.
-- **Put settings in the client's `env` block, not in a `.env` file.** Clients don't launch
-  the server from the repository, so a `.env` there is never read. The server still starts
-  and search still works, but every download fails for lack of credentials.
-
-The command is the executable `uv sync` installed. Print its absolute path from the
-repository directory:
+Find the absolute path of `uvx`:
 
 ```bash
-realpath .venv/bin/cdse-local-mcp        # Windows: .venv\Scripts\cdse-local-mcp.exe
+command -v uvx        # macOS and Linux
+where uvx             # Windows
 ```
+
+### Claude Code
+
+```bash
+ claude mcp add cdse --scope user \
+  -e CDSE_S3_ACCESS_KEY=your-access-key \
+  -e CDSE_S3_SECRET_KEY=your-secret-key \
+  -- "$(command -v uvx)" --from git+https://github.com/konstantinos2018/cdse-local-mcp cdse-local-mcp
+```
+
+`$(command -v uvx)` is fine here: your shell expands it before the command runs, so the
+stored configuration gets the absolute path. `--scope user` makes the server available in every
+project, and the leading space keeps your keys out of shell history. Confirm with
+`claude mcp list`.
 
 ### Claude Desktop and Cowork
 
@@ -132,44 +118,63 @@ Add the server to `claude_desktop_config.json`:
 {
   "mcpServers": {
     "cdse": {
-      "command": "/absolute/path/to/cdse-local-mcp/.venv/bin/cdse-local-mcp",
+      "command": "/absolute/path/to/uvx",
+      "args": ["--from", "git+https://github.com/konstantinos2018/cdse-local-mcp", "cdse-local-mcp"],
       "env": {
         "CDSE_S3_ACCESS_KEY": "your-access-key",
-        "CDSE_S3_SECRET_KEY": "your-secret-key",
-        "CDSE_DOWNLOAD_DIR": "/absolute/path/to/EO-downloads"
+        "CDSE_S3_SECRET_KEY": "your-secret-key"
       }
     }
   }
 }
 ```
 
-If the file already has an `mcpServers` object, add the `"cdse"` entry inside it rather than
-creating a second one. Then **fully quit and reopen the app**; closing the window is not
-enough.
+Replace `/absolute/path/to/uvx` with the path printed above. Unlike in a terminal, nothing in
+this file is expanded, so `$(...)` and `~` don't work in `command`. If the file already has an
+`mcpServers` object, add the `"cdse"` entry inside it. Then **fully quit and reopen the app**;
+closing the window is not enough.
 
 Cowork uses the same configuration. It runs in a virtual machine that sees only the folder you
 share with it, while this server runs on your computer. For Cowork to open what it downloads,
-point `CDSE_DOWNLOAD_DIR` inside that shared folder.
+set `CDSE_DOWNLOAD_DIR` to a folder inside the shared one.
 
-### Claude Code
+### The first launch
+
+The first launch builds the server and downloads its dependencies, including the GDAL library
+bundled with `rasterio`. That can take long enough for a client to give up waiting. Build it
+once in a terminal first; the command exits when it's done:
 
 ```bash
-claude mcp add cdse --scope user \
-  -e CDSE_S3_ACCESS_KEY=your-access-key \
-  -e CDSE_S3_SECRET_KEY=your-secret-key \
-  -e CDSE_DOWNLOAD_DIR=/absolute/path/to/EO-downloads \
-  -- /absolute/path/to/cdse-local-mcp/.venv/bin/cdse-local-mcp
+uvx --from git+https://github.com/konstantinos2018/cdse-local-mcp cdse-local-mcp < /dev/null
 ```
 
-`--scope user` makes it available in every project. Start the command with a space to keep
-the keys out of your shell history, then confirm with `claude mcp list`.
+In the Windows Command Prompt, use `< NUL` instead of `< /dev/null`.
+
+### Updating
+
+`uvx` caches the build, so a new version on GitHub isn't picked up automatically. To update,
+rebuild with `--refresh`, then restart your client:
+
+```bash
+uvx --refresh --from git+https://github.com/konstantinos2018/cdse-local-mcp cdse-local-mcp < /dev/null
+```
+
+Once releases are tagged, you can pin one instead by appending it to the URL, for example
+`git+https://github.com/konstantinos2018/cdse-local-mcp@v0.1.0`.
+
+### While the repository is private
+
+`uvx` fetches with `git`, so it needs the same access as `git clone`. With the
+[GitHub CLI](https://cli.github.com/), run `gh auth setup-git` once so that `git` uses your
+GitHub login over HTTPS. If you use SSH keys with GitHub instead, replace the URL with
+`git+ssh://git@github.com/konstantinos2018/cdse-local-mcp` everywhere above.
 
 ### Check it works
 
-Ask *"list the Sentinel-2 collections"*: it needs no credentials, so it proves the connection
-alone. Then try a search and a small download.
+Ask *"list the Sentinel-2 collections"*: it needs no credentials, so it tests the connection
+by itself. Then try a search and a small download.
 
-The server logs to stderr, and at startup reports what it received:
+At startup the server reports what it received, on stderr:
 
 ```
 cdse-local-mcp 0.1.0.dev0 ready: 8 tools, oauth=False, s3=True
@@ -181,23 +186,33 @@ macOS.
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| Server doesn't start, or "not found" / `ENOENT` | Relative command, or `$(...)` in it | Use the absolute path |
-| Search works; downloads say *"S3 access keys, which are not configured"* | Keys in `.env` rather than the client config | Move them into the `env` block |
+| Server doesn't start, or "not found" / `ENOENT` | `uvx` not found: relative path, or `$(...)` in a JSON file | Use the absolute path |
+| Server fails or times out on first use | First build still running | Build it in a terminal first, as above |
+| "Repository not found" or an authentication error | No access to the private repository | See [While the repository is private](#while-the-repository-is-private) |
+| Search works; downloads say *"S3 access keys, which are not configured"* | Keys not in the client configuration | Add them to `env` (or `-e` for Claude Code) |
 | Tools don't appear after editing the config | App not fully restarted | Quit it completely and reopen |
 | Can't find the downloaded files | Looking in the wrong place | Check `Downloads/cdse-local-mcp`, or wherever `CDSE_DOWNLOAD_DIR` points |
 | Cowork can't open the downloaded files | Its VM sees only the shared folder | Download into that folder |
 
-### For development
+## Configuration
 
-The MCP Inspector exercises the tools by hand; run it from the repository directory, where the
-`.env` file is read:
+All settings are environment variables, set in your client's configuration as above.
 
-```bash
-npx @modelcontextprotocol/inspector uv run cdse-local-mcp
-```
+**Catalogue search needs no credentials.** Downloads need **S3 access keys** from a free
+[Copernicus Data Space account](https://dataspace.copernicus.eu/).
 
-Code changes take effect the next time the client restarts the server, since `uv sync`
-installs the package in editable mode.
+| Variable | For | Notes |
+|---|---|---|
+| `CDSE_S3_ACCESS_KEY`, `CDSE_S3_SECRET_KEY` | All downloads | Create them in the [S3 keys manager](https://eodata-s3keysmanager.dataspace.copernicus.eu/); the secret is shown once |
+| `CDSE_DOWNLOAD_DIR` | Where files land | Optional. Defaults to a `cdse-local-mcp` folder inside your Downloads folder |
+| `CDSE_MAX_CALL_BYTES`, `CDSE_MAX_SESSION_BYTES` | Transfer caps | Default 5 GiB per call, 25 GiB per session |
+
+Account passwords are never used or accepted.
+
+**Why S3 rather than OAuth.** The OData download endpoint rejects tokens from a Sentinel Hub
+OAuth client (`DAT-ZIP-609`, "Token audience not allowed") and accepts only a password-grant
+token. S3 keys avoid passwords entirely, are independently revocable, and are CDSE's
+documented high-performance path.
 
 ## Tools
 
@@ -245,11 +260,32 @@ assistant cannot spend your month in a loop. Full numbers: [docs/cdse-apis.md](d
 ## Development
 
 ```bash
-uv sync
+git clone https://github.com/konstantinos2018/cdse-local-mcp
+cd cdse-local-mcp
+uv sync                    # or: pip install -e .
 uv run pytest              # unit tests, no network
-uv run pytest -m live      # against the real CDSE API; no credentials needed
+uv run pytest -m live      # against the real CDSE API; needs no credentials
 uv run ruff check . && uv run mypy
 ```
+
+**Run your working copy in a client** by pointing it at the executable `uv sync` installed,
+instead of at `uvx`. It is installed in editable mode, so your changes take effect the next
+time the client restarts the server:
+
+```bash
+realpath .venv/bin/cdse-local-mcp     # use this as "command"; Windows: .venv\Scripts\cdse-local-mcp.exe
+```
+
+**Exercise the tools by hand** with the MCP Inspector. Run it from the repository directory,
+where a `.env` file is read; copy [.env.example](.env.example) to start one:
+
+```bash
+npx @modelcontextprotocol/inspector uv run cdse-local-mcp
+```
+
+**Test through a real client** with the scenarios in
+[tests/manual/scenarios.md](tests/manual/scenarios.md). Record each session with the
+*Manual test run* issue template.
 
 Design documents:
 [CLAUDE.md](CLAUDE.md) for working conventions,
