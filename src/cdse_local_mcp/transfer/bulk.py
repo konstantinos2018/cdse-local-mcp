@@ -103,3 +103,21 @@ async def download_objects(
         bytes_written=written,
         total_bytes=total,
     )
+
+
+def pending_bytes(
+    objects: list[S3Object], *, destination_root: Path, directory_name: str, prefix: str
+) -> int:
+    """Bytes that would actually transfer: objects not already present at full size.
+
+    Lets a budget check count only real traffic, so a request over bands that are already
+    cached is not refused for bytes that will never move.
+    """
+    pending = 0
+    for obj in objects:
+        target = resolve_target(
+            destination_root, directory_name, *obj.relative_to(prefix).split("/")
+        )
+        if not (target.exists() and target.stat().st_size == obj.size):
+            pending += obj.size
+    return pending

@@ -28,15 +28,19 @@ resolutions needs a resampling choice, which is analysis the caller should make 
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from cdse_local_mcp.clients.s3 import S3Client, S3Object
 from cdse_local_mcp.domain.geometry import Bbox
 from cdse_local_mcp.errors import InvalidRequest, UpstreamError
-from cdse_local_mcp.transfer.paths import partial_path
+from cdse_local_mcp.transfer.budget import TransferBudget
+from cdse_local_mcp.transfer.bulk import ProgressCallback, download_objects
+from cdse_local_mcp.transfer.paths import partial_path, resolve_target
 
 logger = logging.getLogger(__name__)
 
@@ -197,3 +201,50 @@ def window_filename(asset: str, bbox_wgs84: Bbox) -> str:
     """
     west, south, east, north = bbox_wgs84
     return f"{asset}_{west:.4f}_{south:.4f}_{east:.4f}_{north:.4f}.tif"
+
+
+def product_stem(product_name: str) -> str:
+    """``S2B_..._T34SEH_20240716T101056.SAFE`` -> ``S2B_..._T34SEH_20240716T101056``."""
+    for suffix in (".SAFE", ".SEN3", ".zip"):
+        if product_name.endswith(suffix):
+            return product_name[: -len(suffix)]
+    return product_name
+
+
+async def extract_windows(
+    *,
+    client: S3Client,
+    bucket: str,
+    prefix: str,
+    objects: list[tuple[str, S3Object]],
+    destination_root: Path,
+    product_name: str,
+    bbox: Bbox,
+    budget: TransferBudget,
+    progress: ProgressCallback | None = None,
+) -> list[WindowResult]:
+    """Fetch each source band through the budgeted path, then crop it locally.
+
+    Bands land in the product tree exactly as ``download_assets`` would place them, so a band
+    already fetched - by either tool - is a cache hit and the crop costs no transfer at all.
+    Crops go under ``windows/<product>/``, named by band and bbox.
+    """
+    await download_objects(
+        client=client,
+        bucket=bucket,
+        prefix=prefix,
+        objects=[obj for _, obj in objects],
+        destination_root=destination_root,
+        directory_name=product_name,
+        budget=budget,
+        progress=progress,
+    )
+
+    stem = product_stem(product_name)
+    results: list[WindowResult] = []
+    for asset, obj in objects:
+        source = resolve_target(destination_root, product_name, *obj.relative_to(prefix).split("/"))
+        target = resolve_target(destination_root, "windows", stem, window_filename(asset, bbox))
+        # Decoding JPEG 2000 is CPU-bound; keep it off the event loop.
+        results.append(await asyncio.to_thread(crop_to_geotiff, source, bbox, target, asset=asset))
+    return results

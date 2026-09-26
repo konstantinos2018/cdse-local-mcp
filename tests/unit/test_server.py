@@ -10,6 +10,7 @@ DISCOVERY_TOOLS = {"search_products", "list_product_assets", "list_collections"}
 DOWNLOAD_TOOLS = {
     "download_product",
     "download_assets",
+    "download_window",
     "download_status",
     "download_cancel",
 }
@@ -66,7 +67,7 @@ async def test_server_instructions_state_the_interaction_rules() -> None:
 async def test_download_tools_declare_that_they_write() -> None:
     """A client must be able to tell which tools touch the filesystem."""
     mcp = build_server()
-    for name in ("download_product", "download_assets", "download_cancel"):
+    for name in ("download_product", "download_assets", "download_window", "download_cancel"):
         annotations = (await mcp.get_tool(name)).annotations
         assert annotations is not None
         assert annotations.read_only_hint is False
@@ -95,3 +96,12 @@ async def test_selective_download_is_steered_towards_and_explains_olci() -> None
     assert "Almost always the right choice" in description
     assert "geo-coordinates" in description  # OLCI is useless without it
     assert "wqsf" in description
+
+
+async def test_the_window_tool_states_its_projection_and_its_cost() -> None:
+    """A caller expecting a lon/lat crop, or a tiny transfer, would otherwise be surprised."""
+    description = (await build_server().get_tool("download_window")).description or ""
+    assert "EPSG:32634" in description
+    assert "fetched whole" in description
+    assert "PARTIAL" in description
+    assert "download_assets" in description  # where OLCI goes instead
