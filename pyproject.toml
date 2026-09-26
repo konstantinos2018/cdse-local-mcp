@@ -36,11 +36,12 @@ dependencies = [
     "pydantic>=2.7",
     "pydantic-settings>=2.3",
     "shapely>=2.0",
+    # Downloads are the point of this server, so these are not optional. As an extra they
+    # were a trap: a plain `uv sync` uninstalled them from a working environment, leaving a
+    # server that started, searched, and failed every download.
+    "boto3>=1.34",  # S3 listing and request signing
+    "rasterio>=1.3",  # windowed extraction; its wheels bundle GDAL with JPEG 2000 support
 ]
-
-[project.optional-dependencies]
-# Product download: S3 transport and windowed raster reads.
-download = ["boto3>=1.34", "rasterio>=1.3"]
 
 [project.urls]
 Homepage = "https://github.com/konstantinos2018/cdse-local-mcp"

@@ -126,7 +126,7 @@ class S3Client:
         except ImportError as exc:  # pragma: no cover - dependency is declared
             raise UpstreamError(
                 "boto3 is not installed, so downloads are unavailable.",
-                hint="Install the download extra: uv sync --all-extras",
+                hint="boto3 is a required dependency; reinstall the package to restore it.",
             ) from exc
 
         assert settings.s3_access_key is not None

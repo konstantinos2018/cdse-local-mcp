@@ -32,7 +32,7 @@ not gaps:
 ## Commands
 
 ```bash
-uv sync --all-extras           # install, including dev deps
+uv sync                        # install, including dev deps
 uv run cdse-local-mcp          # run the stdio server
 uv run pytest                  # full suite, no network (live tests deselected)
 uv run pytest -m live          # live CDSE tests; needs credentials in env

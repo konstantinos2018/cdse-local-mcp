@@ -45,4 +45,3 @@ First release, targeting 0.1.0.
   hashes are not yet compared.
 - **Windows are not read remotely.** Each band is fetched whole, then cropped locally. Measured
   on live CDSE, this was faster and used far fewer requests than remote JPEG 2000 reads.
-- Requires the `download` extra (`boto3`, `rasterio`) for any download.

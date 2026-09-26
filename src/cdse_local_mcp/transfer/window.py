@@ -66,13 +66,13 @@ class WindowResult:
 
 
 def _rasterio() -> Any:
-    """Import rasterio lazily, so discovery works without the download extra installed."""
+    """Import rasterio on first use: it pulls in GDAL, and most tool calls never need it."""
     try:
         import rasterio
     except ImportError as exc:  # pragma: no cover - dependency is declared
         raise UpstreamError(
             "rasterio is not installed, so windowed extraction is unavailable.",
-            hint="Install the download extra: uv sync --all-extras",
+            hint="rasterio is a required dependency; reinstall the package to restore it.",
         ) from exc
     return rasterio
 

@@ -73,13 +73,8 @@ Requires Python 3.11+.
 ```bash
 git clone https://github.com/konstantinos2018/cdse-local-mcp
 cd cdse-local-mcp
-uv sync --extra download          # or: pip install -e ".[download]"
+uv sync            # or: pip install -e .
 ```
-
-The `download` extra (`boto3`, `rasterio`) is what makes downloads work. **Always include
-it**: `uv sync` makes the environment match its arguments exactly, so a later plain `uv sync`
-uninstalls both. The server would still start and search would still work, but every download
-would fail.
 
 ## Credentials
 
@@ -250,7 +245,7 @@ assistant cannot spend your month in a loop. Full numbers: [docs/cdse-apis.md](d
 ## Development
 
 ```bash
-uv sync --all-extras
+uv sync
 uv run pytest              # unit tests, no network
 uv run pytest -m live      # against the real CDSE API; no credentials needed
 uv run ruff check . && uv run mypy
