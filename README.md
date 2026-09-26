@@ -87,7 +87,7 @@ Downloads need **S3 access keys** from a free
 | Variable | For | Where |
 |---|---|---|
 | `CDSE_S3_ACCESS_KEY`, `CDSE_S3_SECRET_KEY` | All downloads | [S3 keys manager](https://eodata-s3keysmanager.dataspace.copernicus.eu/) |
-| `CDSE_DOWNLOAD_DIR` | Where files land | **Set this.** The default, `~/.cache/cdse-local-mcp`, is hidden |
+| `CDSE_DOWNLOAD_DIR` | Where files land | Optional. Defaults to a `cdse-local-mcp` folder inside your Downloads folder |
 | `CDSE_MAX_CALL_BYTES`, `CDSE_MAX_SESSION_BYTES` | Transfer caps | Default 5 GiB per call, 25 GiB per session |
 
 These are environment variables, set in your MCP client's configuration — see below.
@@ -184,7 +184,7 @@ macOS.
 | Server doesn't start, or "not found" / `ENOENT` | Relative command, or `$(...)` in it | Use the absolute path |
 | Search works; downloads say *"S3 access keys, which are not configured"* | Keys in `.env` rather than the client config | Move them into the `env` block |
 | Tools don't appear after editing the config | App not fully restarted | Quit it completely and reopen |
-| Can't find the downloaded files | `CDSE_DOWNLOAD_DIR` not set | Set it; the default is hidden |
+| Can't find the downloaded files | Looking in the wrong place | Check `Downloads/cdse-local-mcp`, or wherever `CDSE_DOWNLOAD_DIR` points |
 | Cowork can't open the downloaded files | Its VM sees only the shared folder | Download into that folder |
 
 ### For development

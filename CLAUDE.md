@@ -61,6 +61,9 @@ failed quietly on a real machine before being written down.
 - **`~` in `CDSE_DOWNLOAD_DIR` works** because `transfer/paths.py` calls `expanduser()`, not
   because anything in the client expands it. Keep every use of the download root behind
   `ensure_root` / `resolve_target`.
+- **Tests must never write to the default download folder.** It is the user's real Downloads
+  directory, so `tests/conftest.py` points `CDSE_DOWNLOAD_DIR` at a temporary folder for every
+  test. Keep that fixture autouse.
 - **The startup log line is the diagnostic**: `ready: N tools, oauth=…, s3=…` on stderr. Keep
   it, and keep it accurate. Claude Desktop writes it to
   `~/.config/Claude/logs/mcp-server-<name>.log` on Linux.
@@ -188,7 +191,7 @@ decision; do not add a password grant.
 | `CDSE_S3_SECRET_KEY` | Pairs with the above |
 | `CDSE_CLIENT_ID` | Optional, **unused in v1**; reserved for Sentinel Hub APIs |
 | `CDSE_CLIENT_SECRET` | Pairs with the above |
-| `CDSE_DOWNLOAD_DIR` | Download root (default: `~/.cache/cdse-local-mcp`) |
+| `CDSE_DOWNLOAD_DIR` | Download root (default: `<Downloads>/cdse-local-mcp`, honouring a localised XDG Downloads folder on Linux) |
 | `CDSE_MAX_CALL_BYTES` | Per-call transfer cap (default 5 GiB) |
 | `CDSE_MAX_SESSION_BYTES` | Per-session transfer budget (default 25 GiB) |
 
