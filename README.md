@@ -188,7 +188,7 @@ macOS.
 |---|---|---|
 | Server doesn't start, or "not found" / `ENOENT` | `uvx` not found: relative path, or `$(...)` in a JSON file | Use the absolute path |
 | Server fails or times out on first use | First build still running | Build it in a terminal first, as above |
-| "Repository not found" or an authentication error | No access to the private repository | See [While the repository is private](#while-the-repository-is-private) |
+| `Git operation failed` when installing or starting | No access to the private repository | See [While the repository is private](#while-the-repository-is-private) |
 | Search works; downloads say *"S3 access keys, which are not configured"* | Keys not in the client configuration | Add them to `env` (or `-e` for Claude Code) |
 | Tools don't appear after editing the config | App not fully restarted | Quit it completely and reopen |
 | Can't find the downloaded files | Looking in the wrong place | Check `Downloads/cdse-local-mcp`, or wherever `CDSE_DOWNLOAD_DIR` points |
