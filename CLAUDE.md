@@ -56,8 +56,12 @@ failed quietly on a real machine before being written down.
   `.env` is a development convenience; never make anything depend on it.
 - **The command runs without a shell and with a minimal `PATH`.** `$(which uv)` is taken as a
   literal program name, and `~/.local/bin` is not on a desktop app's `PATH`. Document absolute
-  paths only. The recommended command is the venv's console script, which needs neither `uv`
-  nor `--directory`.
+  paths only. **Users** run `uvx --from git+https://github.com/...` with the absolute path to
+  `uvx`, which needs no clone; **developers** point the client at `.venv/bin/cdse-local-mcp`,
+  which is editable. Neither needs `--directory`.
+- **The first `uvx` launch builds the package and downloads rasterio's GDAL**, which can take
+  longer than a client waits. The server exits cleanly on empty stdin, so
+  `uvx … cdse-local-mcp < /dev/null` pre-builds it; keep that property.
 - **`~` in `CDSE_DOWNLOAD_DIR` works** because `transfer/paths.py` calls `expanduser()`, not
   because anything in the client expands it. Keep every use of the download root behind
   `ensure_root` / `resolve_target`.

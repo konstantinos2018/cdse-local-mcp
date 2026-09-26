@@ -28,6 +28,7 @@ First release, targeting 0.1.0.
   the partial file for resuming.
 - Tuned support for Sentinel-2 L1C and L2A, and Sentinel-3 OLCI L1B and Level-2 Water
   discovery.
+- Install and run straight from GitHub with `uvx`; no clone needed.
 - Downloads land in a visible `cdse-local-mcp` folder inside your Downloads folder unless
   `CDSE_DOWNLOAD_DIR` says otherwise. On Linux the localised XDG Downloads folder is used, so a
   desktop that calls it something other than `Downloads` gets the right one.
