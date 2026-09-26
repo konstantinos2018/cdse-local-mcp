@@ -16,6 +16,9 @@ htmlcov/
 .env.*
 !.env.example
 downloads/
+# The job journal a download folder always contains. Holds local paths.
+jobs.json
+jobs.json.tmp
 *.SAFE/
 *.SEN3/
 *.jp2
