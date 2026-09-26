@@ -12,11 +12,10 @@ from __future__ import annotations
 
 import logging
 
-from cdse_local_mcp.clients.s3 import S3Object, split_s3_path
 from cdse_local_mcp.config import get_settings
 from cdse_local_mcp.domain import collections as coll
 from cdse_local_mcp.domain.models import DownloadReport, Job, human_bytes
-from cdse_local_mcp.errors import InvalidRequest, NotFound, tool_guard
+from cdse_local_mcp.errors import InvalidRequest, tool_guard
 from cdse_local_mcp.tools import DOWNLOADS, READ_ONLY, ToolDef
 from cdse_local_mcp.tools._shared import (
     _budget,
@@ -24,7 +23,7 @@ from cdse_local_mcp.tools._shared import (
     _registry,
     _report,
     _require_s3,
-    _s3_href,
+    _select_assets,
     get_odata,
     get_s3,
     set_odata,
@@ -74,7 +73,8 @@ async def download_product(
     settings = get_settings()
     _require_s3()
     canonical = coll.canonical_collection_id(collection)
-    name, bucket, prefix, _uuid, _assets = await _product_context(canonical, product_id, odata_uuid)
+    ctx = await _product_context(canonical, product_id, odata_uuid)
+    name, bucket, prefix = ctx.name, ctx.bucket, ctx.prefix
 
     s3 = get_s3()
     objects = await s3.list_objects(bucket, prefix)
@@ -148,42 +148,19 @@ async def download_assets(
     settings = get_settings()
     _require_s3()
 
-    if not assets:
-        raise InvalidRequest(
-            "No assets were requested.",
-            hint="Call list_product_assets to see what this product offers, then name some.",
-        )
-
     canonical = coll.canonical_collection_id(collection)
-    name, bucket, prefix, _uuid, item_assets = await _product_context(
-        canonical, product_id, odata_uuid
+    ctx = await _product_context(canonical, product_id, odata_uuid)
+    name, bucket, prefix = ctx.name, ctx.bucket, ctx.prefix
+    selected = await _select_assets(
+        collection=canonical,
+        product_id=product_id,
+        requested=assets,
+        item_assets=ctx.assets,
+        bucket=bucket,
+        prefix=prefix,
     )
-
-    available = [key for key, value in item_assets.items() if _s3_href(value)]
-    wanted: dict[str, str] = {}
-    for request in assets:
-        key = coll.match_asset_key(canonical, request, available)
-        if key is None:
-            raise InvalidRequest(
-                f"{product_id} has no downloadable asset matching {request!r}.",
-                hint=(
-                    "Available: " + ", ".join(sorted(available)[:40]) + ". Friendly names from "
-                    "list_product_assets also work."
-                ),
-            )
-        wanted[key] = str(_s3_href(item_assets[key]))
-
+    objects = [obj for _, obj in selected.objects]
     s3 = get_s3()
-    sizes = {obj.key: obj.size for obj in await s3.list_objects(bucket, prefix)}
-    objects: list[S3Object] = []
-    for key, href in wanted.items():
-        _, object_key = split_s3_path(href)
-        if object_key not in sizes:
-            raise NotFound(
-                f"The catalogue lists {key} but the object store does not hold it.",
-                hint="Try another product, or download the whole product instead.",
-            )
-        objects.append(S3Object(key=object_key, size=sizes[object_key]))
 
     total = sum(obj.size for obj in objects)
     _budget().check(total, confirmed=confirm)
@@ -214,11 +191,11 @@ async def download_assets(
 
     registry.start(job, runner)
 
-    whole_product = sum(sizes.values())
+    whole_product = selected.whole_product_bytes
     return _report(
         [job],
         [
-            f"Downloading {len(objects)} asset(s) from {name}: {', '.join(sorted(wanted))} "
+            f"Downloading {len(objects)} asset(s) from {name}: {', '.join(sorted(selected.keys))} "
             f"(~{human_bytes(total)}), into {settings.download_dir}.",
             f"That is {human_bytes(total)} instead of {human_bytes(whole_product)} for the "
             "whole product.",

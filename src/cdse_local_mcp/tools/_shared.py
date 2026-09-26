@@ -8,14 +8,17 @@ ceiling.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any
 
 from cdse_local_mcp.auth import TokenProvider
 from cdse_local_mcp.clients.odata import ODataClient
-from cdse_local_mcp.clients.s3 import S3Client, split_s3_path
+from cdse_local_mcp.clients.s3 import S3Client, S3Object, split_s3_path
 from cdse_local_mcp.config import get_settings
+from cdse_local_mcp.domain import collections as coll
 from cdse_local_mcp.domain.models import DownloadReport, Job, ProductSummary, human_bytes
-from cdse_local_mcp.errors import AuthRequired, NotFound, OfflineProduct
+from cdse_local_mcp.errors import AuthRequired, InvalidRequest, NotFound, OfflineProduct
 from cdse_local_mcp.tools import discovery
 from cdse_local_mcp.transfer.budget import TransferBudget, get_budget
 from cdse_local_mcp.transfer.jobs import JobRegistry, get_registry
@@ -90,13 +93,24 @@ async def _resolve_uuid(collection: str, product_id: str, odata_uuid: str | None
     return summary.odata_uuid
 
 
+@dataclass(frozen=True)
+class ProductContext:
+    """Everything a download needs to know about one product."""
+
+    name: str
+    bucket: str
+    prefix: str
+    uuid: str
+    assets: dict[str, Any]
+    footprint: tuple[float, float, float, float] | None
+
+
 async def _product_context(
     collection: str, product_id: str, odata_uuid: str | None
-) -> tuple[str, str, str, str, dict[str, Any]]:
-    """Resolve everything a download needs: name, bucket, prefix, and the item's assets.
+) -> ProductContext:
+    """Resolve a product to its S3 location, its assets and its footprint.
 
-    Returns ``(name, bucket, prefix, uuid, assets)``. Raises if the product is archived, so
-    no caller starts a transfer that cannot succeed.
+    Raises if the product is archived, so no caller starts a transfer that cannot succeed.
     """
     item = await discovery.get_client().get_item(collection=collection, item_id=product_id)
     summary = ProductSummary.from_stac_item(item, collection)
@@ -124,8 +138,21 @@ async def _product_context(
         )
 
     bucket, prefix = split_s3_path(info.s3_path)
-    assets = item.get("assets") if isinstance(item.get("assets"), dict) else {}
-    return info.name, bucket, prefix, uuid, assets or {}
+    raw_assets = item.get("assets")
+    raw_bbox = item.get("bbox")
+    footprint = (
+        (float(raw_bbox[0]), float(raw_bbox[1]), float(raw_bbox[2]), float(raw_bbox[3]))
+        if isinstance(raw_bbox, list) and len(raw_bbox) == 4
+        else None
+    )
+    return ProductContext(
+        name=info.name,
+        bucket=bucket,
+        prefix=prefix,
+        uuid=uuid,
+        assets=raw_assets if isinstance(raw_assets, dict) else {},
+        footprint=footprint,
+    )
 
 
 def _require_s3() -> None:
@@ -147,3 +174,74 @@ def _s3_href(asset: Any) -> str | None:
         return None
     href = asset.get("href")
     return href if isinstance(href, str) and href.startswith("s3://") else None
+
+
+@dataclass(frozen=True)
+class SelectedAssets:
+    """Requested assets resolved to concrete objects in the bucket."""
+
+    objects: list[tuple[str, S3Object]]
+    whole_product_bytes: int
+
+    @property
+    def total_bytes(self) -> int:
+        return sum(obj.size for _, obj in self.objects)
+
+    @property
+    def keys(self) -> list[str]:
+        return [key for key, _ in self.objects]
+
+
+async def _select_assets(
+    *,
+    collection: str,
+    product_id: str,
+    requested: list[str],
+    item_assets: dict[str, Any],
+    bucket: str,
+    prefix: str,
+    accept: Callable[[dict[str, Any]], bool] | None = None,
+    kind: str = "downloadable",
+) -> SelectedAssets:
+    """Resolve asset names, friendly or raw, to S3 objects with exact sizes.
+
+    ``accept`` narrows which assets qualify - the window tool admits rasters only - and the
+    error for an unknown name lists exactly the qualifying ones. One bucket listing supplies
+    every size, so this costs a single request however many assets are named.
+    """
+    if not requested:
+        raise InvalidRequest(
+            "No assets were requested.",
+            hint="Call list_product_assets to see what this product offers, then name some.",
+        )
+
+    available = [
+        key
+        for key, value in item_assets.items()
+        if _s3_href(value) and (accept is None or accept(value))
+    ]
+    wanted: dict[str, str] = {}
+    for request in requested:
+        key = coll.match_asset_key(collection, request, available)
+        if key is None:
+            raise InvalidRequest(
+                f"{product_id} has no {kind} asset matching {request!r}.",
+                hint=(
+                    "Available: " + ", ".join(sorted(available)[:40]) + ". Friendly names from "
+                    "list_product_assets also work."
+                ),
+            )
+        wanted[key] = str(_s3_href(item_assets[key]))
+
+    sizes = {obj.key: obj.size for obj in await get_s3().list_objects(bucket, prefix)}
+    objects: list[tuple[str, S3Object]] = []
+    for key, href in wanted.items():
+        _, object_key = split_s3_path(href)
+        if object_key not in sizes:
+            raise NotFound(
+                f"The catalogue lists {key} but the object store does not hold it.",
+                hint="Try another product, or download the whole product instead.",
+            )
+        objects.append((key, S3Object(key=object_key, size=sizes[object_key])))
+
+    return SelectedAssets(objects=objects, whole_product_bytes=sum(sizes.values()))
