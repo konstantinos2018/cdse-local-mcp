@@ -14,7 +14,7 @@ from typing import Any
 import pytest
 
 from cdse_local_mcp.clients.stac import StacClient
-from cdse_local_mcp.config import Settings
+from cdse_local_mcp.config import Settings, get_settings
 from cdse_local_mcp.tools import discovery
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -36,6 +36,19 @@ def ignore_developer_env(monkeypatch: pytest.MonkeyPatch) -> None:
     would silently pass for the wrong reason, or fail confusingly. Found exactly that way.
     """
     monkeypatch.setitem(Settings.model_config, "env_file", None)
+
+
+@pytest.fixture(autouse=True)
+def isolated_downloads(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Keep every test's downloads in a temporary folder.
+
+    The default download folder is the user's real Downloads directory, so a test that
+    forgot to set one would leave files where a person would find them.
+    """
+    monkeypatch.setenv("CDSE_DOWNLOAD_DIR", str(tmp_path / "downloads"))
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
 
 
 @pytest.fixture(autouse=True)

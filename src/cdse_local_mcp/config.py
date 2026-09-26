@@ -11,13 +11,52 @@ test or a future mirror can point elsewhere, not because they are expected to ch
 
 from __future__ import annotations
 
+import os
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import SecretStr
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 GIB = 1024**3
+DOWNLOAD_FOLDER_NAME = "cdse-local-mcp"
+
+
+def _user_downloads_dir() -> Path:
+    """The user's Downloads folder, as their desktop names it.
+
+    On Linux the folder name is localised - a Greek desktop may call it ``Λήψεις`` - and the
+    real name is recorded in ``user-dirs.dirs``. Hardcoding ``~/Downloads`` would create a
+    second, unexpected folder there. macOS and Windows keep the on-disk name ``Downloads``
+    whatever the display language.
+    """
+    home = Path.home()
+    config_home = Path(os.environ.get("XDG_CONFIG_HOME") or home / ".config")
+    try:
+        lines = (config_home / "user-dirs.dirs").read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return home / "Downloads"
+
+    for line in lines:
+        key, _, value = line.strip().partition("=")
+        if key != "XDG_DOWNLOAD_DIR" or not value:
+            continue
+        resolved = Path(value.strip().strip('"').replace("$HOME", str(home)))
+        if not resolved.is_absolute():
+            resolved = home / resolved
+        # Per the XDG spec, a user dir set to $HOME itself means "disabled".
+        if resolved != home:
+            return resolved
+    return home / "Downloads"
+
+
+def default_download_dir() -> Path:
+    """Where downloads land when ``CDSE_DOWNLOAD_DIR`` is unset.
+
+    A visible folder inside Downloads, not a hidden cache. These are files a person asked for
+    and will go looking for; the previous default, ``~/.cache/cdse-local-mcp``, hid them.
+    """
+    return _user_downloads_dir() / DOWNLOAD_FOLDER_NAME
 
 
 class Settings(BaseSettings):
@@ -41,7 +80,7 @@ class Settings(BaseSettings):
     s3_secret_key: SecretStr | None = None
 
     # --- local filesystem and transfer caps --------------------------------------------
-    download_dir: Path = Path.home() / ".cache" / "cdse-local-mcp"
+    download_dir: Path = Field(default_factory=default_download_dir)
     max_call_bytes: int = 5 * GIB
     max_session_bytes: int = 25 * GIB
 
