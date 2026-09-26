@@ -73,8 +73,13 @@ Requires Python 3.11+.
 ```bash
 git clone https://github.com/konstantinos2018/cdse-local-mcp
 cd cdse-local-mcp
-uv sync            # or: pip install -e .
+uv sync --extra download          # or: pip install -e ".[download]"
 ```
+
+The `download` extra (`boto3`, `rasterio`) is what makes downloads work. **Always include
+it**: `uv sync` makes the environment match its arguments exactly, so a later plain `uv sync`
+uninstalls both. The server would still start and search would still work, but every download
+would fail.
 
 ## Credentials
 
