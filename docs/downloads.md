@@ -124,56 +124,57 @@ the three preserves SAFE structure.
 |---|---|---|---|---|
 | **1. Whole product** | `download_product_archive` | `Products(<uuid>)/$value`, or the STAC `Product` asset | ~800 MB (S2 L1C), up to 8 GB (S1 GRD) | `.zip` → valid `.SAFE` |
 | **2. Selected files** | `download_assets` | S3 GET of the individual `s3://eodata/…` objects a STAC item names | ~25–115 MiB per 10 m band | Files written into the product tree |
-| **3. Spatial window** | `download_window` | **Gridded (S2)**: GDAL/rasterio reads only the JP2 tiles intersecting the bbox over `/vsis3`. **Swath (OLCI)**: mask by per-pixel lat/lon, slice the variable arrays | ~0.5–5 MB for a 5×5 km crop | **GeoTIFF** (S2) or **CSV/Parquet table** (OLCI) |
+| **3. Spatial window** | `download_window` | **Gridded (S2)**: fetch each band through the budgeted path, crop locally. **Swath (OLCI)**: not built — mask by per-pixel lat/lon | Band fetched once (~25–115 MiB), crop ~1–25 MiB, later windows free | **GeoTIFF** at native CRS and resolution |
 
 **Tier 3 is the important one, and it comes with an honest caveat.** A `.SAFE` product cannot
 be spatially subset and remain a valid `.SAFE` — the format is an archive with fixed
 granule/metadata structure. So a bbox request necessarily produces a *new raster*, not a
 cropped SAFE. If a user explicitly needs SAFE format, they need tier 1 or 2.
 
-### How tier 3 works
+### How tier 3 works — and why it is not a remote read
 
-Sentinel-2 band assets are JPEG 2000 with internal tiling, so GDAL can decode only the
-codeblocks covering a window rather than the whole 10 980 × 10 980 image. Verified working
-stack, no system GDAL needed: `pip install rasterio` ships **GDAL 3.12.4 with the
-`JP2OpenJPEG` driver** (confirmed 2026-09-12).
+The obvious design is to read the window remotely: GDAL over `/vsis3`, decoding only the JPEG
+2000 codeblocks that intersect the bbox. It works, and authenticates fine with header-signed
+S3. **It is the wrong choice**, measured on 2026-09-26 against live CDSE for one Sentinel-2
+10 m band and a 13 × 11 km window, every method returning identical pixels:
 
-```python
-# transfer/window.py, in outline
-with rasterio.Env(
-    AWS_S3_ENDPOINT="eodata.dataspace.copernicus.eu",
-    AWS_HTTPS="YES",
-    AWS_VIRTUAL_HOSTING="FALSE",
-    GDAL_DISABLE_READDIR_ON_OPEN="YES",
-):
-    with rasterio.open("/vsis3/eodata/Sentinel-2/MSI/L1C/.../B04.jp2") as src:
-        win = rasterio.windows.from_bounds(*bounds_in_src_crs, transform=src.transform)
-        data = src.read(1, window=win)  # only the intersecting tiles are fetched
-        profile = src.profile | {
-            "driver": "GTiff",
-            "height": ...,
-            "width": ...,
-            "transform": src.window_transform(win),
-        }
-```
+| Method | GETs | Bytes | Time |
+|---|---|---|---|
+| Remote window, GDAL defaults (16 KB chunks) | 89 | 6.5 MB | 16–18 s, **110 s once** |
+| Remote window, 256 KB chunks | 90 | 27 MB | 20.8 s |
+| Remote window, 1 MB chunks | 20 | 93 MB | 7.1 s |
+| Remote window, 4 MB chunks | 15 | 105 MB | 9.0 s |
+| **Fetch whole band, crop locally** | **1** | 116 MB | **4.9 s** |
 
-Non-obvious requirements:
+JPEG 2000 forces GDAL to walk the codestream in ~89 small reads regardless of chunk size, so
+the choice is between many round trips and re-downloading the file. Remote reads also do
+their own networking, which would bypass the budget semaphore every transfer must hold.
 
-- **Reproject the bbox first.** The user's bbox is EPSG:4326; Sentinel-2 granules are in a
-  UTM zone (Gulf of Patras → EPSG:32634, tile `T34SEH`). Transform the bounds into the
-  source CRS before building the window, or the read silently lands in the wrong place.
-- **`GDAL_DISABLE_READDIR_ON_OPEN=YES`** — without it GDAL lists the whole `.SAFE` directory,
-  which is hundreds of objects and counts against the request quota.
-- **Multi-resolution bands.** 10 m (B02/B03/B04/B08), 20 m (B05–B07, B8A, B11, B12) and 60 m
-  (B01, B09, B10) bands have different grids. Build the window per band; do not reuse a pixel
-  window across resolutions. Resample only if the caller asks for a stacked output.
-- **Off-tile bboxes.** A bbox may fall partly or wholly outside the granule. Intersect
-  first and report the actual covered extent rather than returning a padded array.
-- **Still counts against quota.** Ranged reads are cheap in bytes but each is a request.
-- **L2A `.SAFE` products** put JP2s under `GRANULE/*/IMG_DATA/R10m/` etc.; L1C uses
-  `IMG_DATA/` directly. Resolve paths from the STAC asset hrefs, never by string-building.
+Bytes are the cheapest thing CDSE rations — 12 TB a month against 10,000 requests — so
+`download_window` fetches each band through the normal path into the product tree, then crops
+locally with rasterio. The band stays cached: a second window over it transfers nothing.
+Verified end to end, on a scene not previously on disk:
 
-Tier 3 needs S3 credentials. Without them, fall back to tier 2 and say so.
+| | Fetched | Time |
+|---|---|---|
+| Whole Gulf of Patras, B04 + B08 | 232.5 MiB | 12.6 s |
+| A smaller window over the same bands | 0 B | 1.9 s |
+
+**Remote windowing would win on Cloud-Optimised GeoTIFFs**, whose layout needs a handful of
+range requests per window. None of the first-class collections are COGs, so that is a later
+optimisation for collections such as `cop-dem-glo-30-dged-cog`, not a gap.
+
+Requirements that still hold:
+
+- **Reproject the bbox, densified.** Sentinel-2 granules are UTM (Gulf of Patras → EPSG:32634).
+  A lon/lat rectangle curves in UTM, so transforming only its four corners clips the edges.
+- **Per band, never stacked.** 10, 20 and 60 m bands have different grids. Stacking needs a
+  resampling choice, which is analysis the caller should make knowingly.
+- **Floor the start, ceil the end**, so partly covered edge pixels are kept.
+- **Check the footprint first.** The STAC item's bbox is compared before anything is fetched,
+  so a window that misses the granule fails instantly rather than after a 110 MB download.
+- **Report partial coverage** with the real extent, rather than padding silently.
+- **Lossless output.** Reflectance is integer-coded; DEFLATE with predictor 2, tiled.
 
 ### Tier 3 for swath data (Sentinel-3 OLCI)
 

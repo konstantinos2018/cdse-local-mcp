@@ -54,20 +54,21 @@ src/cdse_local_mcp/
 ├── errors.py            # typed errors -> structured tool results
 ├── clients/             # stac.py · odata.py · s3.py   (HTTP/S3 only, no MCP imports)
 ├── domain/              # models.py · collections.py · geometry.py · timerange.py
-├── transfer/            # budget.py · paths.py · download.py · bulk.py · jobs.py · window.py*
-└── tools/               # discovery.py · downloads.py  (thin adapters)
+├── transfer/            # budget.py · paths.py · download.py · bulk.py · jobs.py · window.py
+└── tools/               # discovery.py · downloads.py · windows.py · _shared.py  (thin adapters)
 tests/
 ├── unit/                # mocked; the default suite
 ├── live/                # @pytest.mark.live, hits real CDSE (needs no credentials)
 └── fixtures/            # trimmed captures of real responses
 ```
 
-`*` not built yet. **Current state**: discovery and whole-product download are complete —
-`search_products`, `list_product_assets`, `list_collections`, `download_product`,
-`download_assets`, `download_status`, `download_cancel`. Verified end to end on 2026-09-13
-against real products: a whole Sentinel-2 L1C scene (66 files, 785 MiB, exact size match) and
-a two-band selective fetch (51.8 MiB instead of 204.7 MiB) whose output computes sensible
-NDVI. Next milestone: windowed reads (`transfer/window.py`).
+**Current state**: eight tools — `search_products`, `list_product_assets`,
+`list_collections`, `download_product`, `download_assets`, `download_window`,
+`download_status`, `download_cancel`. All verified against real CDSE products: a whole
+Sentinel-2 L1C scene (66 files, 785 MiB, exact size match), a two-band selective fetch
+(51.8 MiB instead of 204.7 MiB), and bbox windows (whole-gulf crop in 12.6 s; a second window
+over the same bands in 1.9 s with nothing fetched). Next: OLCI windowing, which is blocked on
+the output-format decision under Open decisions.
 
 **The layering rule.** `tools/` modules are thin adapters: validate input, call a client or
 transfer function, shape the result. All CDSE knowledge lives in `clients/` and `domain/` and
@@ -243,6 +244,10 @@ These cost real debugging time. [docs/cdse-apis.md](docs/cdse-apis.md) has the f
   credentials. `ODataClient` follows them by hand, re-attaching the token each hop.
 - **`Online` absent means online.** Only archived products carry the flag, so treat a missing
   value as available rather than defaulting to offline.
+- **Do not read JPEG 2000 windows remotely.** GDAL over `/vsis3` works but needs ~89 small
+  reads per window: 16–110 s against 4.9 s to fetch the whole band and crop locally, and it
+  bypasses the budget semaphore. `download_window` fetches then crops, by measured decision —
+  see `transfer/window.py`. Revisit only for Cloud-Optimised GeoTIFF collections.
 - **S3 refuses presigned URLs.** Query-string SigV4 returns `403 InvalidAccessKeyId` on keys
   that list and read fine with header auth, so `S3Client` signs request headers with
   `S3SigV4Auth`. Do not "simplify" it back to `generate_presigned_url`.

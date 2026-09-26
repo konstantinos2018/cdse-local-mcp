@@ -5,8 +5,8 @@ search the Sentinel catalogue, inspect products, and retrieve them to local disk
 
 It runs locally over stdio, so the data lands on your machine and stays there.
 
-> **Status: alpha.** Catalogue discovery and whole-product download work, verified against
-> the live API. Selective and windowed downloads are next — see [Roadmap](#roadmap).
+> **Status: alpha.** Discovery, whole-product, selective and windowed downloads work for
+> Sentinel-2, verified against the live API. OLCI windowing is next — see [Roadmap](#roadmap).
 
 ## Why
 
@@ -42,6 +42,16 @@ top up the same tree:
 ```
 download_assets(..., assets=["red_10m", "nir_10m"])
   -> B04, B08: 51.8 MiB instead of 204.7 MiB for the whole product
+```
+
+**Crop an area, not a scene.** `download_window` cuts your bounding box out of each band and
+writes a GeoTIFF at the band's native resolution and projection — no resampling. Bands are
+fetched once and cached, so further windows over them are free:
+
+```
+download_window(..., assets=["red_10m", "nir_10m"], bbox=[21.3, 38.1, 21.9, 38.4])
+  -> B04, B08 over the Gulf of Patras: 5273 x 3364 px each, EPSG:32634, 12.6 s
+  -> a second window over the same bands: 0 B fetched, 1.9 s
 ```
 
 **Products arrive unpacked.** CDSE stores a `.SAFE` as a tree of objects rather than a zip,
@@ -117,6 +127,7 @@ npx @modelcontextprotocol/inspector uv run cdse-local-mcp
 | `list_product_assets` | List the individual files inside a product, with friendly names |
 | `list_collections` | Browse the 419 CDSE collections |
 | `download_assets` | Fetch only the bands or variables you name — usually what you want |
+| `download_window` | Cut a bounding box out of named bands, as GeoTIFFs |
 | `download_product` | Fetch a whole product to disk, as a background job |
 | `download_status` | Check progress; returns the file path when complete |
 | `download_cancel` | Stop a download, keeping the partial file for resuming |
@@ -142,7 +153,8 @@ says so when it returns both.
 - [x] Catalogue discovery over STAC
 - [x] Whole-product download as background jobs, resumable and size-verified
 - [x] Selective download: individual bands and OLCI variables
-- [ ] Windowed reads: a bounding box out of a product without fetching the whole file
+- [x] Windowed extraction for gridded products (Sentinel-2): bbox crops as GeoTIFFs
+- [ ] Windowed extraction for swath products (Sentinel-3 OLCI): per-pixel lat/lon masking
 
 ## Quotas
 
