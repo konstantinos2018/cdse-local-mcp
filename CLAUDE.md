@@ -6,7 +6,7 @@ Guidance for AI coding agents and human contributors working in this repository.
 
 `cdse-local-mcp` is an MCP server that gives LLM agents access to the **Copernicus Data Space
 Ecosystem (CDSE)**: catalogue discovery over the STAC and OData APIs, and retrieval of
-Sentinel products to local disk over S3 and OData. It runs as a local **stdio** server against
+Sentinel products to local disk over S3. It runs as a local **stdio** server against
 any MCP client, and is distributed as a public open-source package on PyPI.
 
 - Repository: `https://github.com/konstantinos2018/cdse-local-mcp`
@@ -93,8 +93,8 @@ lines.
 5. **Every write path is confined to the download root.** `resolve()` then
    `is_relative_to(root)`; reject `..`, absolute paths and symlink escapes. No tool deletes or
    moves files outside it, and any destructive tool is dry-run by default.
-6. **Never mint a token inline.** Exactly one `TokenProvider` instance; tool and client code
-   asks it for a valid token.
+6. **Never mint a token or build an S3 signature inline.** Exactly one `TokenProvider` and
+   one `S3Client` per process; tool code asks them, never talks to CDSE directly.
 7. **Never invent an endpoint URL, collection ID or quota number.** They come from
    [docs/cdse-apis.md](docs/cdse-apis.md) or a fresh fetch of
    `documentation.dataspace.copernicus.eu`. If you fetch and find a discrepancy, update that
@@ -154,40 +154,45 @@ when this flow is bypassed, not a substitute for it.
 
 ## Auth
 
-Client-credentials flow only. **No account password is ever accepted or stored** — that was a
-deliberate decision, do not add a password grant.
+**S3 access keys for every download. No account password, ever** — that was a deliberate
+decision; do not add a password grant.
 
 | Env var | Purpose |
 |---|---|
-| `CDSE_CLIENT_ID` | OAuth client id for token exchange |
-| `CDSE_CLIENT_SECRET` | OAuth client secret |
-| `CDSE_S3_ACCESS_KEY` | Optional; enables the S3 download transport |
-| `CDSE_S3_SECRET_KEY` | Optional; pairs with the above |
+| `CDSE_S3_ACCESS_KEY` | Required for any download, whole, selective or windowed |
+| `CDSE_S3_SECRET_KEY` | Pairs with the above |
+| `CDSE_CLIENT_ID` | Optional, **unused in v1**; reserved for Sentinel Hub APIs |
+| `CDSE_CLIENT_SECRET` | Pairs with the above |
 | `CDSE_DOWNLOAD_DIR` | Download root (default: `~/.cache/cdse-local-mcp`) |
 | `CDSE_MAX_CALL_BYTES` | Per-call transfer cap (default 5 GiB) |
 | `CDSE_MAX_SESSION_BYTES` | Per-session transfer budget (default 25 GiB) |
 
-Access tokens live **10 minutes**. `TokenProvider` refreshes ahead of expiry behind an
-`asyncio.Lock`, caches in memory only, and never touches disk.
+**Why S3 and not OAuth.** A Sentinel Hub `sh-*` client-credentials token is rejected by the
+OData download service with `DAT-ZIP-609 "Token audience not allowed"`; only a
+password-grant `cdse-public` token is accepted there, and this project does not support
+account passwords. S3 keys are long-lived, independently revocable, and need no OAuth at all.
+Verified against the live API on 2026-09-13; see [docs/cdse-apis.md](docs/cdse-apis.md).
 
-**Capability tiers by credential.** Catalogue search works unauthenticated; downloads need
-the OAuth client; windowed reads need the S3 keys. Tools must degrade gracefully and say
-which credential is missing — never fail at import time.
+**Capability tiers by credential.** Tools degrade gracefully and name the missing credential;
+nothing fails at import time.
 
 | Configured | Available |
 |---|---|
 | nothing | all discovery: `search_products`, `list_product_assets`, `list_collections`, and OData product metadata |
-| + S3 keys | every download: `download_product_archive`, and later selective and windowed reads |
-| + OAuth client | nothing in v1 — reserved for Sentinel Hub APIs, which are out of scope |
+| + S3 keys | every download: `download_product`, `download_assets`, `download_window` |
+| + OAuth client | nothing in v1 |
 
-**Downloads use S3, not OAuth.** A Sentinel Hub `sh-*` client-credentials token is rejected
-by the OData download service with `DAT-ZIP-609 "Token audience not allowed"`; only a
-password-grant `cdse-public` token is accepted there, and this project does not support
-account passwords. Verified against the live API on 2026-09-13; see
-[docs/cdse-apis.md](docs/cdse-apis.md).
+Every download tool checks `settings.has_s3` **before doing any work**. Product metadata is
+readable without credentials, so a tool that checked later would queue a job that cannot
+possibly run and report success.
 
-README documents *that* both credentials are required and links to the CDSE dashboard and the
-S3 keys manager; it does not walk through creating them.
+`auth.py`'s `TokenProvider` is built and tested but has no caller in v1. If Sentinel Hub
+APIs are ever added it is ready: one instance, refresh-ahead behind an `asyncio.Lock`,
+memory-only. Read `expires_in` rather than assuming a lifetime — the Quotas page says 600 s,
+a client-credentials token came back with 1800 s.
+
+README states that S3 keys are required and links to the keys manager; it does not walk
+through creating them.
 
 ## CDSE domain gotchas
 
@@ -230,8 +235,8 @@ These cost real debugging time. [docs/cdse-apis.md](docs/cdse-apis.md) has the f
   before enqueueing a transfer.
 - **Quota is finite and shared.** 10 000 OData requests/month, 12 TB per rolling 30 days,
   4 concurrent connections. Cache aggressively; never poll in a tight loop.
-- **Product metadata is readable without credentials; only the bytes need a token.** So a
-  download tool must check `settings.has_oauth` *before* doing anything, or it will happily
+- **Product metadata is readable without credentials; only the bytes need them.** So a
+  download tool must check `settings.has_s3` *before* doing anything, or it will happily
   queue a job that cannot possibly run and report success.
 - **httpx strips `Authorization` on cross-host redirects, and `$value` always redirects** to
   a delivery host. Following redirects automatically yields a 401 that looks like bad
