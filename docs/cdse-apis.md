@@ -136,6 +136,22 @@ A `sentinel-2-l1c` item (verified: `S2A_MSIL1C_20240731T092031_N0511_R093_T34SEH
    can be fetched instead of the ~800 MB archive, and a *window* of a band can be read
    without fetching the band at all. See [downloads.md](downloads.md).
 
+### Which collections record cloud cover — verified 2026-09-27
+
+Ask `/collections/{id}/queryables`. **Never the global `/queryables`**: it is the union across
+all collections and lists `eo:cloud_cover` even though most collections lack it. Filtering on
+a property a collection lacks excludes every item, so the search silently returns nothing.
+
+| Collection | `eo:cloud_cover` | Checked against |
+|---|---|---|
+| `sentinel-2-l1c`, `sentinel-2-l2a` | yes | queryables and items |
+| `sentinel-3-olci-2-wfr-ntc` | **yes** — 2–7% on July 2024 items | queryables and items |
+| `sentinel-3-olci-1-efr-ntc` | no — `null` on every item | queryables and items |
+| `sentinel-1-grd`, `sentinel-1-slc` | no | queryables; a ≤20% filter returned 0 of 5+ items |
+| `sentinel-2-global-mosaics` | no | queryables |
+| `sentinel-5p-l2-no2` | no | queryables |
+| `cop-dem-glo-30-dged-cog` | no | queryables |
+
 Useful item properties: `eo:cloud_cover`, `grid:code` (MGRS tile, e.g. `MGRS-34SEH`),
 `processing:level`, `product:type`, `platform`, `sat:relative_orbit`, `view:sun_elevation`,
 plus `storage:schemes` and `auth:schemes` describing how to reach the `s3://` hrefs.

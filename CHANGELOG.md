@@ -40,8 +40,10 @@ First release, targeting 0.1.0.
 
 ### Known limitations
 
-- **No cloud-cover default.** Optical searches refuse until a threshold, or `"any"`, is given.
-  This is deliberate: the assistant is expected to ask.
+- **No cloud-cover default.** Searches of collections that record cloud cover refuse until a
+  threshold, or `"any"`, is given. This is deliberate: the assistant is expected to ask. A
+  threshold on a collection that records none, such as Sentinel-1 radar, is refused rather
+  than silently returning nothing; which collections record it is read from the catalogue.
 - **Sentinel-3 OLCI windowing is not built.** `download_window` refuses swath products; use
   `download_assets` with `geo-coordinates`, `wqsf` and the variables needed.
 - **S3 downloads are verified by size, not checksum.** Each object's length is checked; content

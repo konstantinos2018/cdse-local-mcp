@@ -62,7 +62,8 @@ one band is under 1 MB.
 **CRS**: granules are in a UTM zone — Gulf of Patras is tile `T34SEH`, EPSG:32634. Reproject
 any EPSG:4326 bbox into the granule CRS before windowing.
 
-**Cloud cover** is available as `eo:cloud_cover`. See the filtering rule in `CLAUDE.md`: it is
+**Cloud cover** is available as `eo:cloud_cover`, and OLCI Level-2 Water records it too — see
+the table in [cdse-apis.md](cdse-apis.md). See the filtering rule in `CLAUDE.md`: it is
 never applied silently.
 
 ---

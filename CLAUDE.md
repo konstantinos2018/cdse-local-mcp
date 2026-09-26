@@ -164,8 +164,12 @@ default**. If the user stated a threshold, apply it. If they did not, do not inv
 not quietly return everything as though the question never arose — the tool description
 instructs the model to **ask the user for a threshold** before searching an optical
 collection. Returning the 5 least-cloudy scenes when the user wanted a specific date is a
-silent wrong answer. Collections without `eo:cloud_cover` (Sentinel-1, and OLCI, which uses
-WQSF flags instead) must reject the parameter with a clear message rather than ignoring it.
+silent wrong answer. Collections without `eo:cloud_cover` must reject the parameter with a
+clear message: sending it anyway excludes every product, and the user is told no data
+exists. Which collections record it is **checked, not assumed**: the four first-class
+collections answer from the registry (verified live, and pinned by a live test), and every
+other collection from its per-collection STAC queryables. Radar, Sentinel-5P, DEMs and OLCI
+Level-1B record none; **OLCI Level-2 Water does**, despite being swath data.
 
 **2. Search, present, confirm, then download.** No tool downloads as a side effect of
 searching, and no single call goes from a place name to bytes on disk. The flow is:
@@ -281,6 +285,11 @@ These cost real debugging time. [docs/cdse-apis.md](docs/cdse-apis.md) has the f
 - **Products are stored unpacked on S3.** A `.SAFE` is a prefix of hundreds of objects, not a
   zip, so a whole-product download rebuilds a directory tree. Object keys come from a remote
   listing, so every one goes through the path sandbox.
+- **Only the per-collection queryables tell the truth about filterable properties.** The global
+  `/queryables` is the union across all collections and claims `eo:cloud_cover` everywhere.
+- **Scene cloud cover and pixel quality flags are different things.** OLCI Level-2 has both: an
+  `eo:cloud_cover` to choose scenes by, and `wqsf` flags to mask pixels once read. One does
+  not replace the other.
 - **Rate limiting arrives far sooner than the documented 2000/minute.** A handful of
   requests in quick succession can return 429 — running the four live tests together did it.
   `StacClient` retries 429 and 5xx three times with backoff, honouring `Retry-After`, and
