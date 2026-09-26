@@ -139,11 +139,22 @@ class JobRegistry:
             job.bytes_total = total
         self._write(force=False)
 
-    def finish(self, job: Job, *, path: Path, cached: bool, verified: bool) -> None:
+    def finish(
+        self,
+        job: Job,
+        *,
+        path: Path,
+        cached: bool,
+        verified: bool,
+        outputs: list[Path] | None = None,
+        notes: list[str] | None = None,
+    ) -> None:
         """Attach the result of a successful transfer."""
         job.path = str(path)
         job.cached = cached
         job.checksum_verified = verified
+        job.outputs = [str(p) for p in outputs or []]
+        job.notes = list(notes or [])
         self._write()
 
     # -- queries ---------------------------------------------------------------------------

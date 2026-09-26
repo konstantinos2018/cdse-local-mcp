@@ -168,6 +168,13 @@ class Job(BaseModel):
     error: str | None = None
     cached: bool = Field(default=False, description="True if the file was already on disk")
     checksum_verified: bool = False
+    outputs: list[str] = Field(
+        default_factory=list, description="Every file produced, for jobs that produce several"
+    )
+    notes: list[str] = Field(
+        default_factory=list,
+        description="Things the user should know about the result, such as partial coverage",
+    )
     created_at: str
     finished_at: str | None = None
 
