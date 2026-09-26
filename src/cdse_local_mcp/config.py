@@ -1,5 +1,10 @@
 """Runtime configuration, read from ``CDSE_*`` environment variables.
 
+In normal use those variables come from the MCP client's ``env`` block. A ``.env`` file is
+also read, but only from the **current working directory** - which is the repository during
+development and somewhere else entirely when a client launches the server. So ``.env`` is a
+development convenience; nothing may depend on it to work.
+
 Endpoint defaults are the values verified in ``docs/cdse-apis.md``. They are settable so a
 test or a future mirror can point elsewhere, not because they are expected to change.
 """
