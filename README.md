@@ -92,7 +92,10 @@ Downloads need **S3 access keys** from a free
 | Variable | For | Where |
 |---|---|---|
 | `CDSE_S3_ACCESS_KEY`, `CDSE_S3_SECRET_KEY` | All downloads | [S3 keys manager](https://eodata-s3keysmanager.dataspace.copernicus.eu/) |
-| `CDSE_DOWNLOAD_DIR` | Where files land | Defaults to `~/.cache/cdse-local-mcp` |
+| `CDSE_DOWNLOAD_DIR` | Where files land | **Set this.** The default, `~/.cache/cdse-local-mcp`, is hidden |
+| `CDSE_MAX_CALL_BYTES`, `CDSE_MAX_SESSION_BYTES` | Transfer caps | Default 5 GiB per call, 25 GiB per session |
+
+These are environment variables, set in your MCP client's configuration — see below.
 
 Account passwords are never used or accepted.
 
@@ -103,26 +106,103 @@ documented high-performance path.
 
 ## Connect an MCP client
 
+The server speaks MCP over stdio: a client launches it and passes settings as environment
+variables. Two details matter, and both fail quietly when wrong:
+
+- **Use absolute paths.** Desktop apps don't load your shell profile, so `uv`, `uvx` and
+  anything in `~/.local/bin` are usually not on their `PATH`. The command also runs without a
+  shell, so `$(which uv)` or `~` in `command` is taken literally.
+- **Put settings in the client's `env` block, not in a `.env` file.** Clients don't launch
+  the server from the repository, so a `.env` there is never read. The server still starts
+  and search still works, but every download fails for lack of credentials.
+
+The command is the executable `uv sync` installed. Print its absolute path from the
+repository directory:
+
+```bash
+realpath .venv/bin/cdse-local-mcp        # Windows: .venv\Scripts\cdse-local-mcp.exe
+```
+
+### Claude Desktop and Cowork
+
+Add the server to `claude_desktop_config.json`:
+
+| OS | File |
+|---|---|
+| macOS | `~/Library/Application Support/Claude/claude_desktop_config.json` |
+| Windows | `%APPDATA%\Claude\claude_desktop_config.json` |
+| Linux (beta) | `~/.config/Claude/claude_desktop_config.json` |
+
 ```json
 {
   "mcpServers": {
     "cdse": {
-      "command": "uv",
-      "args": ["--directory", "/path/to/cdse-local-mcp", "run", "cdse-local-mcp"],
+      "command": "/absolute/path/to/cdse-local-mcp/.venv/bin/cdse-local-mcp",
       "env": {
-        "CDSE_S3_ACCESS_KEY": "...",
-        "CDSE_S3_SECRET_KEY": "..."
+        "CDSE_S3_ACCESS_KEY": "your-access-key",
+        "CDSE_S3_SECRET_KEY": "your-secret-key",
+        "CDSE_DOWNLOAD_DIR": "/absolute/path/to/EO-downloads"
       }
     }
   }
 }
 ```
 
-Try it by hand with the MCP Inspector:
+If the file already has an `mcpServers` object, add the `"cdse"` entry inside it rather than
+creating a second one. Then **fully quit and reopen the app**; closing the window is not
+enough.
+
+Cowork uses the same configuration. It runs in a virtual machine that sees only the folder you
+share with it, while this server runs on your computer. For Cowork to open what it downloads,
+point `CDSE_DOWNLOAD_DIR` inside that shared folder.
+
+### Claude Code
+
+```bash
+claude mcp add cdse --scope user \
+  -e CDSE_S3_ACCESS_KEY=your-access-key \
+  -e CDSE_S3_SECRET_KEY=your-secret-key \
+  -e CDSE_DOWNLOAD_DIR=/absolute/path/to/EO-downloads \
+  -- /absolute/path/to/cdse-local-mcp/.venv/bin/cdse-local-mcp
+```
+
+`--scope user` makes it available in every project. Start the command with a space to keep
+the keys out of your shell history, then confirm with `claude mcp list`.
+
+### Check it works
+
+Ask *"list the Sentinel-2 collections"*: it needs no credentials, so it proves the connection
+alone. Then try a search and a small download.
+
+The server logs to stderr, and at startup reports what it received:
+
+```
+cdse-local-mcp 0.1.0.dev0 ready: 8 tools, oauth=False, s3=True
+```
+
+`s3=False` means the keys are not reaching it. Claude Desktop keeps this log in
+`~/.config/Claude/logs/mcp-server-<name>.log` on Linux, and in `~/Library/Logs/Claude/` on
+macOS.
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| Server doesn't start, or "not found" / `ENOENT` | Relative command, or `$(...)` in it | Use the absolute path |
+| Search works; downloads say *"S3 access keys, which are not configured"* | Keys in `.env` rather than the client config | Move them into the `env` block |
+| Tools don't appear after editing the config | App not fully restarted | Quit it completely and reopen |
+| Can't find the downloaded files | `CDSE_DOWNLOAD_DIR` not set | Set it; the default is hidden |
+| Cowork can't open the downloaded files | Its VM sees only the shared folder | Download into that folder |
+
+### For development
+
+The MCP Inspector exercises the tools by hand; run it from the repository directory, where the
+`.env` file is read:
 
 ```bash
 npx @modelcontextprotocol/inspector uv run cdse-local-mcp
 ```
+
+Code changes take effect the next time the client restarts the server, since `uv sync`
+installs the package in editable mode.
 
 ## Tools
 
