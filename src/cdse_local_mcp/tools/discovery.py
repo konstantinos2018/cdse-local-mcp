@@ -6,7 +6,10 @@ step, per the interaction rules in ``CLAUDE.md``.
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Literal
+
+import httpx
 
 from cdse_local_mcp.clients.stac import StacClient, next_search_cursor
 from cdse_local_mcp.config import get_settings
@@ -21,8 +24,16 @@ from cdse_local_mcp.domain.models import (
     SearchResult,
 )
 from cdse_local_mcp.domain.timerange import resolve_time_range
-from cdse_local_mcp.errors import CloudCoverUnspecified, InvalidRequest, NotFound, tool_guard
+from cdse_local_mcp.errors import (
+    CdseError,
+    CloudCoverUnspecified,
+    InvalidRequest,
+    NotFound,
+    tool_guard,
+)
 from cdse_local_mcp.tools import READ_ONLY, ToolDef
+
+logger = logging.getLogger(__name__)
 
 _CLOUD_COVER_MAX = 100.0
 _client: StacClient | None = None
@@ -42,14 +53,33 @@ def set_client(client: StacClient | None) -> None:
     _client = client
 
 
-def _resolve_cloud_cover(collection: str, value: float | str | None) -> float | None:
+async def _cloud_cover_support(collection: str) -> bool | None:
+    """Whether a collection records scene cloud cover: True, False, or None if unknowable.
+
+    First-class collections answer from the registry, verified against live data, which
+    saves a request on every search. Every other collection asks the catalogue. Before this
+    existed, a cloud threshold on Sentinel-1 radar went straight through and silently
+    excluded every scene, so the user was told no data existed.
+    """
+    known = coll.has_cloud_cover(collection)
+    if known is not None:
+        return known
+    try:
+        return "eo:cloud_cover" in await get_client().queryables(collection)
+    except (CdseError, httpx.HTTPError) as exc:
+        logger.warning("could not read queryables for %s, cloud cover unknown: %s", collection, exc)
+        return None
+
+
+def _resolve_cloud_cover(
+    collection: str, value: float | str | None, supports: bool | None
+) -> float | None:
     """Apply the no-silent-cloud-filtering rule.
 
     Returns the threshold to send upstream, or None for no filter. Raises when the caller
-    left the decision unmade on a collection that has cloud cover.
+    left the decision unmade on a collection that has cloud cover, or asked to filter one
+    that has none.
     """
-    supports = coll.has_cloud_cover(collection)
-
     if isinstance(value, str):
         if value.lower() != "any":
             raise InvalidRequest(
@@ -79,10 +109,11 @@ def _resolve_cloud_cover(collection: str, value: float | str | None) -> float | 
         )
     if supports is False:
         raise InvalidRequest(
-            f"{collection} does not carry cloud cover, so it cannot be filtered on.",
+            f"{collection} records no scene cloud cover, so it cannot be filtered on. "
+            "Filtering anyway would exclude every product and report that none exist.",
             hint=(
-                "Drop max_cloud_cover. Sentinel-1 is radar; Sentinel-3 OLCI uses per-pixel "
-                "quality flags (wqsf) instead, applied when reading the data."
+                "Search again without max_cloud_cover. Radar (Sentinel-1) sees through cloud; "
+                "atmospheric, elevation and Level-1 products carry no scene-level value."
             ),
         )
     return value
@@ -105,9 +136,10 @@ async def search_products(
     candidates to the user, let them choose, then call a download tool with the chosen
     `product_id`. Never pick for them without asking.
 
-    Cloud cover: for optical collections you MUST decide explicitly. If the user stated a
-    threshold, pass it. If they did not, ask them before searching, then pass a number or
-    `"any"`. The tool refuses rather than guessing.
+    Cloud cover: for collections that record it, you MUST decide explicitly. If the user
+    stated a threshold, pass it. If they did not, ask them before searching, then pass a
+    number or `"any"`. The tool checks which collections record cloud cover and refuses
+    rather than guessing - including refusing a threshold on radar, which has none.
 
     Area: pass exactly one of `bbox` (as `[west, south, east, north]` in EPSG:4326 lon/lat
     order), `wkt`, or `geojson`. For a place name, supply its approximate bounding box; the
@@ -135,7 +167,9 @@ async def search_products(
 
     area = resolve_area(bbox=bbox, wkt=wkt, geojson=geojson)
     time_range = resolve_time_range(start_date, end_date)
-    cloud_threshold = _resolve_cloud_cover(canonical, max_cloud_cover)
+    cloud_threshold = _resolve_cloud_cover(
+        canonical, max_cloud_cover, await _cloud_cover_support(canonical)
+    )
 
     payload = await get_client().search(
         collection=canonical,

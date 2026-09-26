@@ -192,7 +192,9 @@ FIRST_CLASS: dict[str, CollectionSpec] = {
         id="sentinel-3-olci-2-wfr-ntc",
         title="Sentinel-3 OLCI Level-2 Water, full resolution, non-time-critical",
         geometry_kind=GeometryKind.SWATH,
-        has_cloud_cover=False,
+        # Verified 2026-09-27: items carry eo:cloud_cover (2-7% over the Gulf of Patras in
+        # July 2024) and the filter works. Level-1B does not - do not copy this across.
+        has_cloud_cover=True,
         file_format="NetCDF4 files in a .SEN3 directory",
         typical_archive_bytes=250 * MB,
         data_assets=_WATER_QUALITY_ASSETS,
@@ -267,10 +269,10 @@ def spec_for(collection: str) -> CollectionSpec | None:
 
 
 def has_cloud_cover(collection: str) -> bool | None:
-    """Whether a collection carries ``eo:cloud_cover``.
+    """Whether a first-class collection carries ``eo:cloud_cover``.
 
-    Returns None for collections we have no tuned knowledge of, so callers can distinguish
-    "known to have none" from "unknown".
+    Returns None for every other collection, so callers can tell "known to have none" from
+    "unknown" - and ask the catalogue's queryables instead of guessing.
     """
     spec = spec_for(collection)
     return None if spec is None else spec.has_cloud_cover

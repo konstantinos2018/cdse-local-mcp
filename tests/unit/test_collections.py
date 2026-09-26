@@ -36,7 +36,9 @@ def test_timeliness_variants_share_the_ntc_spec() -> None:
 
 def test_cloud_cover_support_distinguishes_unknown_from_absent() -> None:
     assert coll.has_cloud_cover("sentinel-2-l1c") is True
-    assert coll.has_cloud_cover("sentinel-3-olci-2-wfr-ntc") is False
+    # Level-2 Water records scene cloud cover; Level-1B does not. Both verified live.
+    assert coll.has_cloud_cover("sentinel-3-olci-2-wfr-ntc") is True
+    assert coll.has_cloud_cover("sentinel-3-olci-1-efr-ntc") is False
     # Unknown is not the same as absent: the caller must be able to tell.
     assert coll.has_cloud_cover("some-collection-we-have-never-seen") is None
 

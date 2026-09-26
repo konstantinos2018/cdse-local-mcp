@@ -65,6 +65,7 @@ async def test_olci_water_quality_variables_are_still_present() -> None:
         start_date="2024-07-01",
         end_date="2024-07-31",
         bbox=GULF_OF_PATRAS,
+        max_cloud_cover="any",
         limit=1,
     )
     assert found.returned > 0
@@ -83,3 +84,26 @@ async def test_sentinel_collections_are_reachable_past_the_first_page() -> None:
     result = await discovery.list_collections(search="sentinel-2", limit=20)
     ids = {c.collection_id for c in result.collections}
     assert {"sentinel-2-l1c", "sentinel-2-l2a"} <= ids
+
+
+async def test_the_cloud_cover_registry_still_matches_the_catalogue() -> None:
+    """The four tuned collections skip the queryables request; this catches CDSE drifting."""
+    from cdse_local_mcp.domain import collections as coll
+
+    client = discovery.get_client()
+    for collection in coll.FIRST_CLASS:
+        live = "eo:cloud_cover" in await client.queryables(collection)
+        assert coll.has_cloud_cover(collection) is live, f"{collection} registry is stale"
+
+
+async def test_a_cloud_threshold_on_radar_is_refused_live() -> None:
+    from cdse_local_mcp.errors import InvalidRequest
+
+    with pytest.raises(InvalidRequest, match="records no scene cloud cover"):
+        await discovery.search_products(
+            collection="sentinel-1-grd",
+            start_date="2024-07-01",
+            end_date="2024-07-31",
+            bbox=GULF_OF_PATRAS,
+            max_cloud_cover=20,
+        )

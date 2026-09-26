@@ -66,6 +66,7 @@ class StacClient:
             follow_redirects=True,
         )
         self._owns_client = client is None
+        self._queryables: dict[str, frozenset[str]] = {}
 
     async def __aenter__(self) -> StacClient:
         return self
@@ -174,6 +175,23 @@ class StacClient:
     async def get_item(self, *, collection: str, item_id: str) -> dict[str, Any]:
         """GET one item by id."""
         return await self._request("GET", f"{self._base}/collections/{collection}/items/{item_id}")
+
+    async def queryables(self, collection: str) -> frozenset[str]:
+        """Property names a collection can be filtered on, cached for the session.
+
+        Always the per-collection endpoint. The global ``/queryables`` is the union across
+        every collection, so it claims ``eo:cloud_cover`` exists everywhere - including
+        radar, where filtering on it silently returns nothing.
+        """
+        cached = self._queryables.get(collection)
+        if cached is not None:
+            return cached
+
+        payload = await self._request("GET", f"{self._base}/collections/{collection}/queryables")
+        properties = payload.get("properties")
+        names = frozenset(properties) if isinstance(properties, dict) else frozenset()
+        self._queryables[collection] = names
+        return names
 
     async def list_collections(self, *, page_size: int = 200) -> list[dict[str, Any]]:
         """GET every collection, following ``next`` links.

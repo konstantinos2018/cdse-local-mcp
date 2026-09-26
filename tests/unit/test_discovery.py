@@ -77,9 +77,9 @@ async def test_a_threshold_is_passed_upstream_and_reported_back() -> None:
 
 
 async def test_cloud_cover_on_a_collection_without_it_is_rejected() -> None:
-    with pytest.raises(InvalidRequest, match="does not carry cloud cover"):
+    with pytest.raises(InvalidRequest, match="records no scene cloud cover"):
         await discovery.search_products(
-            collection="sentinel-3-olci-2-wfr-ntc",
+            collection="sentinel-3-olci-1-efr-ntc",
             start_date=JULY[0],
             bbox=GULF_OF_PATRAS,
             max_cloud_cover=20,
@@ -369,3 +369,103 @@ async def test_a_bad_request_is_not_retried() -> None:
             max_cloud_cover="any",
         )
     assert route.call_count == 1
+
+
+# --- cloud cover on collections outside the registry --------------------------------------
+
+
+def _queryables(collection: str, *names: str) -> respx.Route:
+    body = {"type": "object", "properties": {name: {"type": "number"} for name in names}}
+    return respx.get(f"{STAC}/collections/{collection}/queryables").mock(
+        return_value=httpx.Response(200, json=body)
+    )
+
+
+@respx.mock
+async def test_a_cloud_threshold_on_radar_is_refused_rather_than_returning_nothing() -> None:
+    """The bug: a threshold on Sentinel-1 went upstream and excluded every scene."""
+    _queryables("sentinel-1-grd", "datetime", "sat:orbit_state")
+    search = _search_route()
+
+    with pytest.raises(InvalidRequest) as exc:
+        await discovery.search_products(
+            collection="sentinel-1-grd",
+            start_date=JULY[0],
+            bbox=GULF_OF_PATRAS,
+            max_cloud_cover=20,
+        )
+
+    assert "exclude every product" in exc.value.message
+    assert not search.called, "the doomed search must not be sent"
+
+
+@respx.mock
+async def test_radar_without_a_threshold_searches_without_asking() -> None:
+    _queryables("sentinel-1-grd", "datetime")
+    _search_route()
+
+    result = await discovery.search_products(
+        collection="sentinel-1-grd", start_date=JULY[0], bbox=GULF_OF_PATRAS
+    )
+    assert result.returned == 2
+
+
+@respx.mock
+async def test_an_untuned_collection_with_cloud_cover_still_requires_a_decision() -> None:
+    """The ask-first rule reaches every collection that records cloud cover."""
+    _queryables("landsat-c2-l2", "datetime", "eo:cloud_cover")
+
+    with pytest.raises(CloudCoverUnspecified):
+        await discovery.search_products(
+            collection="landsat-c2-l2", start_date=JULY[0], bbox=GULF_OF_PATRAS
+        )
+
+
+@respx.mock
+async def test_olci_level_2_requires_a_cloud_decision() -> None:
+    with pytest.raises(CloudCoverUnspecified):
+        await discovery.search_products(
+            collection="sentinel-3-olci-2-wfr-ntc", start_date=JULY[0], bbox=GULF_OF_PATRAS
+        )
+
+
+@respx.mock
+async def test_queryables_are_fetched_once_per_collection() -> None:
+    route = _queryables("sentinel-1-grd", "datetime")
+    _search_route()
+
+    for _ in range(3):
+        await discovery.search_products(
+            collection="sentinel-1-grd", start_date=JULY[0], bbox=GULF_OF_PATRAS
+        )
+    assert route.call_count == 1
+
+
+@respx.mock
+async def test_the_per_collection_endpoint_is_used_never_the_global_one() -> None:
+    """The global /queryables is the union of all collections and claims cloud cover
+    everywhere, which would reintroduce the bug."""
+    per_collection = _queryables("sentinel-1-grd", "datetime")
+    global_route = respx.get(f"{STAC}/queryables").mock(
+        return_value=httpx.Response(200, json={"properties": {"eo:cloud_cover": {}}})
+    )
+    _search_route()
+
+    await discovery.search_products(
+        collection="sentinel-1-grd", start_date=JULY[0], bbox=GULF_OF_PATRAS
+    )
+    assert per_collection.called
+    assert not global_route.called
+
+
+@respx.mock
+async def test_an_unreachable_queryables_endpoint_does_not_block_search() -> None:
+    respx.get(f"{STAC}/collections/sentinel-1-grd/queryables").mock(
+        return_value=httpx.Response(500, text="down")
+    )
+    _search_route()
+
+    result = await discovery.search_products(
+        collection="sentinel-1-grd", start_date=JULY[0], bbox=GULF_OF_PATRAS
+    )
+    assert result.returned == 2
