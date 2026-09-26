@@ -44,6 +44,30 @@ npx @modelcontextprotocol/inspector uv run cdse-local-mcp   # exercise tools by 
 
 Run `ruff`, `mypy` and `pytest` before declaring any change done.
 
+## Running under an MCP client
+
+User-facing setup is in the README; these are the constraints it exists to satisfy. Each one
+failed quietly on a real machine before being written down.
+
+- **Configuration arrives as environment variables from the client's `env` block.** Clients
+  launch the server from an arbitrary working directory, and `.env` is resolved against the
+  working directory, so clients never see it. Launched that way, the server still started and
+  advertised every tool, reporting `s3=False`: search worked and every download failed.
+  `.env` is a development convenience; never make anything depend on it.
+- **The command runs without a shell and with a minimal `PATH`.** `$(which uv)` is taken as a
+  literal program name, and `~/.local/bin` is not on a desktop app's `PATH`. Document absolute
+  paths only. The recommended command is the venv's console script, which needs neither `uv`
+  nor `--directory`.
+- **`~` in `CDSE_DOWNLOAD_DIR` works** because `transfer/paths.py` calls `expanduser()`, not
+  because anything in the client expands it. Keep every use of the download root behind
+  `ensure_root` / `resolve_target`.
+- **The startup log line is the diagnostic**: `ready: N tools, oauth=…, s3=…` on stderr. Keep
+  it, and keep it accurate. Claude Desktop writes it to
+  `~/.config/Claude/logs/mcp-server-<name>.log` on Linux.
+- **Cowork runs in a VM that sees only its shared folder**, while this server runs on the
+  host. Paths in tool results are host paths, which Cowork can open only if they fall inside
+  that folder.
+
 ## Layout and the layering rule
 
 ```
