@@ -1,0 +1,64 @@
+name: Bug report
+description: Something went wrong while using the server
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting this. **Never paste your CDSE keys**: remove them from any
+        configuration or log you include below.
+
+        Security problems should be reported
+        [privately](https://github.com/konstantinos2018/cdse-local-mcp/security/advisories/new)
+        instead.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you asked Claude, and what went wrong.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: dropdown
+    id: client
+    attributes:
+      label: Client
+      options:
+        - Claude Desktop
+        - Cowork
+        - Claude Code
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: model
+    attributes:
+      label: Model
+      description: As shown in Claude's model picker. Model behaviour varies, so this helps.
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Linux
+        - macOS
+        - Windows
+  - type: input
+    id: version
+    attributes:
+      label: Server version
+      description: The commit, or the date you installed or last updated it.
+  - type: textarea
+    id: log
+    attributes:
+      label: Server log
+      description: >-
+        The lines around the error. Claude Desktop keeps them in
+        `~/.config/Claude/logs/` on Linux and `~/Library/Logs/Claude/` on macOS.
+        Remove any keys first.
+      render: text

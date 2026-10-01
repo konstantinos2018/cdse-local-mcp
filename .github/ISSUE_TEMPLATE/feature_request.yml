@@ -1,0 +1,23 @@
+name: Feature request
+description: Suggest something the server should do
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What you are trying to do
+      description: The task, in your own words. A prompt you would like to work is ideal.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would help
+      description: How you imagine the server could support it.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What you do today
+      description: Any workaround, or other tools you use for this.
