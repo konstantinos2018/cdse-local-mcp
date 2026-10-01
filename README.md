@@ -1,8 +1,27 @@
-# cdse-local-mcp
+<p align="center">
+  <img src="docs/assets/logo.svg" alt="" width="120" height="120">
+</p>
+
+<h1 align="center">Copernicus Data Space MCP</h1>
+
+<p align="center">
+  Sentinel satellite data for Claude, in plain language.
+</p>
+
+<p align="center">
+  <a href="pyproject.toml"><img alt="Python version" src="https://img.shields.io/python/required-version-toml?tomlFilePath=https%3A%2F%2Fraw.githubusercontent.com%2Fkonstantinos2018%2Fcdse-local-mcp%2Fmain%2Fpyproject.toml"></a>
+  <a href="LICENSE"><img alt="License" src="https://img.shields.io/github/license/konstantinos2018/cdse-local-mcp"></a>
+  <a href="https://modelcontextprotocol.io"><img alt="MCP stdio server" src="https://img.shields.io/badge/MCP-stdio%20server-6E56CF"></a>
+  <a href="CHANGELOG.md"><img alt="Status: alpha" src="https://img.shields.io/badge/status-alpha-orange"></a>
+  <a href="https://github.com/astral-sh/ruff"><img alt="Ruff" src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json"></a>
+  <a href="https://github.com/astral-sh/uv"><img alt="uv" src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json"></a>
+  <a href="https://mypy-lang.org/"><img alt="Checked with mypy" src="https://www.mypy-lang.org/static/mypy_badge.svg"></a>
+</p>
 
 Ask Claude for Sentinel satellite data in plain language. This MCP server searches the
 [Copernicus Data Space Ecosystem](https://dataspace.copernicus.eu/) and downloads whole
-products, single bands, or just your area of interest to your computer.
+products, single bands, or just your area of interest to your computer. Its package and
+command are both called `cdse-local-mcp`.
 
 > *"Find Sentinel-2 scenes over the Gulf of Patras in July 2024 under 10% cloud, and crop the
 > red and near-infrared bands to the gulf."*
@@ -20,8 +39,6 @@ and downloaded, but not yet cropped to an area.
   [Copernicus account](https://dataspace.copernicus.eu/), then generate keys in the
   [S3 keys manager](https://eodata-s3keysmanager.dataspace.copernicus.eu/). Copy the secret
   straight away: it is shown only once.
-- **Access to this repository**, while it is private. Once invited, run `gh auth setup-git`
-  once with the [GitHub CLI](https://cli.github.com/).
 
 ### 2. Add it to Claude
 
@@ -109,7 +126,6 @@ Then restart Claude.
 |---|---|
 | Server won't start, or "not found" | Use the full path to `uvx` in Claude Desktop's config |
 | Fails or times out the first time | Run step 3, *Build it once* |
-| `Git operation failed` | You don't have access to the repository yet; see step 1 |
 | Search works, but downloads ask for S3 keys | The keys are missing from your Claude configuration |
 | Tools don't appear in Claude Desktop | Quit the app completely, not just its window, and reopen |
 
